@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>רחוב הברוש - קיבוץ דפנה</title>
+
+  <!-- React 18 & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- Babel Standalone (תרגום JSX בדפדפן) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- פונט רוביק בעברית -->
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Rubik', sans-serif;
+      user-select: none;
+    }
+    canvas {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-2">
+
+  <div id="root" class="w-full max-w-5xl"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- הגדרת חפצים במשחק ---
+    const ITEMS = {
+      milk: { id: 'milk', name: 'חלב', icon: '🥛', weight: 1, points: 30 },
+      eggs: { id: 'eggs', name: 'ביצים', icon: '🥚', weight: 1, points: 30 },
+      screwdriver: { id: 'screwdriver', name: 'מברג', icon: '🪛', weight: 1, points: 40 },
+      lawnmower: { id: 'lawnmower', name: 'מכסחת דשא', icon: '🚜', weight: 2, points: 100 },
+      drill: { id: 'drill', name: 'מקדחה', icon: '🔌', weight: 2, points: 80 },
+      sourdough: { id: 'sourdough', name: 'מחמצת 10 שנים', icon: '🍞', weight: 1, points: 120 },
+      flamingo: { id: 'flamingo', name: 'פלמינגו מפלסטיק', icon: '🦩', weight: 1, points: 150 },
+      pokemon: { id: 'pokemon', name: 'קלף פוקימון', icon: '🃏', weight: 1, points: 180 },
+      seinfeld: { id: 'seinfeld', name: 'קלטת סיינפלד', icon: '📼', weight: 1, points: 110 }
+    };
+
+    // --- הגדרת בתים ברחוב ---
+    const INITIAL_HOUSES = [
+      // צד צפון (זוגי)
+      { id: 2, name: 'בית 2 (משפחת כהן)', x: 150, y: 80, side: 'N' },
+      { id: 4, name: 'בית 4 (משפחת לוי)', x: 330, y: 80, side: 'N' },
+      { id: 'toledo', name: 'אחוזת טולדו 👑', x: 500, y: 70, side: 'N', isToledo: true },
+      { id: 8, name: 'בית 8 (משפחת ישראלי)', x: 670, y: 80, side: 'N' },
+      { id: 10, name: 'בית 10 (משפחת אברהם)', x: 850, y: 80, side: 'N' },
+
+      // צד דרום (אי-זוגי)
+      { id: 1, name: 'הבית שלך (בית 1)', x: 150, y: 520, side: 'S', isPlayerHome: true },
+      { id: 3, name: 'בית 3 (משפחת מזרחי)', x: 330, y: 520, side: 'S' },
+      { id: 5, name: 'בית 5 (משפחת גולן)', x: 500, y: 520, side: 'S' },
+      { id: 7, name: 'בית 7 (משפחת שטרן)', x: 670, y: 520, side: 'S' },
+      { id: 9, name: 'בית 9 (משפחת פרידמן)', x: 850, y: 520, side: 'S' },
+    ];
+
+    function CypressStreetGame() {
+      // --- מצבי משחק ---
+      const [gameState, setGameState] = useState('START'); // START, PLAYING, TOLEDO, GAME_OVER
+      const [score, setScore] = useState(0);
+      const [favors, setFavors] = useState(1);
+      const [timeLeft, setTimeLeft] = useState(180); // 3 דקות משחק
+      const [inventory, setInventory] = useState([]);
+      const [notification, setNotification] = useState('ברוכים הבאים לרחוב הברוש!');
+      
+      // טולדו Modal
+      const [toledoChatTimer, setToledoChatTimer] = useState(0);
+      const [canPickToledoItem, setCanPickToledoItem] = useState(false);
+
+      const canvasRef = useRef(null);
+
+      // Refs עבור לוגיקת המשחק בזמן אמת (60 FPS)
+      const stateRef = useRef({
+        player: { x: 150, y: 440, vx: 0, vy: 0, speed: 3.8, stunned: 0 },
+        houses: JSON.parse(JSON.stringify(INITIAL_HOUSES)),
+        aiCompetitors: [],
+        vehicles: [],
+        groundItems: [],
+        keys: {},
+        inventory: []
+      });
+
+      // סנכרון inventory ל-ref
+      useEffect(() => {
+        stateRef.current.inventory = inventory;
+      }, [inventory]);
+
+      // --- התחלת משחק ---
+      const startGame = () => {
+        setScore(0);
+        setFavors(1);
+        setTimeLeft(180);
+        setInventory([]);
+        setGameState('PLAYING');
+        stateRef.current.player = { x: 150, y: 440, vx: 0, vy: 0, speed: 3.8, stunned: 0 };
+        stateRef.current.houses = JSON.parse(JSON.stringify(INITIAL_HOUSES));
+        stateRef.current.aiCompetitors = [];
+        stateRef.current.vehicles = [];
+        stateRef.current.groundItems = [];
+        showNotification('המשחק החל! אוספים חפצים ועוזרים לשכנים.');
+      };
+
+      const showNotification = (msg) => {
+        setNotification(msg);
+      };
+
+      // --- ניהול זמן משחק ---
+      useEffect(() => {
+        if (gameState !== 'PLAYING') return;
+        const timer = setInterval(() => {
+          setTimeLeft(prev => {
+            if (prev <= 1) {
+              setGameState('GAME_OVER');
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        return () => clearInterval(timer);
+      }, [gameState]);
+
+      // --- מחולל בקשות שכנים אקראי ---
+      useEffect(() => {
+        if (gameState !== 'PLAYING') return;
+
+        const requestInterval = setInterval(() => {
+          const houses = stateRef.current.houses;
+          // בחירת בית אקראי שאין לו כרגע בקשה פעילה
+          const eligible = houses.filter(h => !h.isPlayerHome && !h.isToledo && !h.currentRequest);
+          if (eligible.length === 0) return;
+
+          const targetHouse = eligible[Math.floor(Math.random() * eligible.length)];
+          const itemKeys = Object.keys(ITEMS);
+          const randomItemKey = itemKeys[Math.floor(Math.random() * itemKeys.length)];
+          const item = ITEMS[randomItemKey];
+
+          targetHouse.currentRequest = {
+            item,
+            patience: 100, // אחוזים
+            duration: 22,  // שניות עד שנמאס לשכן
+            aiDispatched: false
+          };
+
+          showNotification(`💡 ${targetHouse.name} צריך/ה ${item.icon} ${item.name}!`);
+        }, 6000);
+
+        return () => clearInterval(requestInterval);
+      }, [gameState]);
+
+      // --- מקלדת (מקשים) ---
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          stateRef.current.keys[e.key] = true;
+          if (e.key === ' ' || e.key === 'e' || e.key === 'E') {
+            handleInteraction();
+          }
+        };
+        const handleKeyUp = (e) => { stateRef.current.keys[e.key] = false; };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+          window.removeEventListener('keydown', handleKeyDown);
+          window.removeEventListener('keyup', handleKeyUp);
+        };
+      }, [inventory, favors]);
+
+      // --- אינטראקציה של השחקן (מקש רווח / הגעה לבית) ---
+      const handleInteraction = () => {
+        if (gameState !== 'PLAYING') return;
+        const player = stateRef.current.player;
+        const houses = stateRef.current.houses;
+
+        houses.forEach(house => {
+          const dist = Math.hypot(player.x - house.x, player.y - house.y);
+          if (dist < 60) {
+            // 1. אחוזת טולדו
+            if (house.isToledo) {
+              openToledoModal();
+              return;
+            }
+
+            // 2. הבית של השחקן (מילוי מחדש)
+            if (house.isPlayerHome) {
+              restockAtHome();
+              return;
+            }
+
+            // 3. אספקת בקשה לשכן
+            if (house.currentRequest) {
+              fulfillRequest(house);
+            }
+          }
+        });
+      };
+
+      // מילוי במזווה הביתי
+      const restockAtHome = () => {
+        if (inventory.length >= 2) {
+          showNotification('התיק שלך מלא! פנה מקום ראשית.');
+          return;
+        }
+        const basicItems = [ITEMS.milk, ITEMS.eggs, ITEMS.screwdriver];
+        const added = basicItems[Math.floor(Math.random() * basicItems.length)];
+        setInventory(prev => [...prev, added]);
+        showNotification(`לקחת מהמזווה הביתי: ${added.icon} ${added.name}`);
+      };
+
+      // מילוי בקשה
+      const fulfillRequest = (house) => {
+        const reqItem = house.currentRequest.item;
+        const itemIndex = inventory.findIndex(i => i.id === reqItem.id);
+
+        if (itemIndex !== -1) {
+          // הצלחה!
+          const newInv = [...inventory];
+          newInv.splice(itemIndex, 1);
+          setInventory(newInv);
+
+          const gainedScore = reqItem.points;
+          setScore(s => s + gainedScore);
+          setFavors(f => f + 1);
+
+          // מתנה אקראית מהשכן!
+          const gifts = [ITEMS.drill, ITEMS.seinfeld, ITEMS.sourdough, ITEMS.flamingo];
+          const gift = gifts[Math.floor(Math.random() * gifts.length)];
+          
+          house.currentRequest = null;
+          showNotification(`✨ הבאת ל-${house.name} את ה-${reqItem.name}! (+${gainedScore} נק'). השכן הביא לך במתנה: ${gift.icon}`);
+
+          // ניסיון להוסיף מתנה אם יש מקום
+          if (newInv.length < 2) {
+            setInventory([...newInv, gift]);
+          }
+        } else {
+          showNotification(`❌ ל-${house.name} דרוש/ה ${reqItem.icon} ${reqItem.name}. אין לך את זה בתיק!`);
+        }
+      };
+
+      // --- אחוזת טולדו ---
+      const openToledoModal = () => {
+        setGameState('TOLEDO');
+        setToledoChatTimer(3);
+        setCanPickToledoItem(false);
+
+        const countdown = setInterval(() => {
+          setToledoChatTimer(prev => {
+            if (prev <= 1) {
+              clearInterval(countdown);
+              setCanPickToledoItem(true);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      };
+
+      const pickToledoItem = (item) => {
+        if (inventory.length >= 2) {
+          alert('התיק שלך מלא!');
+          return;
+        }
+        setInventory(prev => [...prev, item]);
+        setGameState('PLAYING');
+        showNotification(`לקחת מטולדו: ${item.icon} ${item.name}!`);
+      };
+
+      const skipToledoTalkWithFavor = () => {
+        if (favors < 1) return;
+        setFavors(f => f - 1);
+        setCanPickToledoItem(true);
+        setToledoChatTimer(0);
+      };
+
+      // --- זריקת חפץ על הרצפה ---
+      const dropItem = (index) => {
+        if (index >= inventory.length) return;
+        const itemToDrop = inventory[index];
+        const newInv = [...inventory];
+        newInv.splice(index, 1);
+        setInventory(newInv);
+
+        stateRef.current.groundItems.push({
+          id: Date.now(),
+          item: itemToDrop,
+          x: stateRef.current.player.x,
+          y: stateRef.current.player.y
+        });
+        showNotification(`הפלת ${itemToDrop.name} על המדרכה.`);
+      };
+
+      // --- מנוע ה-GAME LOOP (Canvas Rendering + Physics) ---
+      useEffect(() => {
+        let animationFrameId;
+
+        const loop = () => {
+          if (gameState === 'PLAYING') {
+            updatePhysics();
+          }
+          renderCanvas();
+          animationFrameId = requestAnimationFrame(loop);
+        };
+
+        animationFrameId = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(animationFrameId);
+      }, [gameState, inventory]);
+
+      // עדכון פיזיקה ודינמיקה
+      const updatePhysics = () => {
+        const state = stateRef.current;
+        const player = state.player;
+        const keys = state.keys;
+
+        // 1. הליכת שחקן
+        let totalWeight = state.inventory.reduce((acc, curr) => acc + curr.weight, 0);
+        let currentSpeed = Math.max(1.8, player.speed - (totalWeight * 0.6));
+
+        if (player.stunned > 0) {
+          player.stunned -= 1;
+        } else {
+          let dx = 0, dy = 0;
+          if (keys['ArrowLeft'] || keys['a'] || keys['A']) dx -= 1;
+          if (keys['ArrowRight'] || keys['d'] || keys['D']) dx += 1;
+          if (keys['ArrowUp'] || keys['w'] || keys['W']) dy -= 1;
+          if (keys['ArrowDown'] || keys['s'] || keys['S']) dy += 1;
+
+          if (dx !== 0 && dy !== 0) {
+            dx *= 0.7071;
+            dy *= 0.7071;
+          }
+
+          player.x = Math.max(40, Math.min(960, player.x + dx * currentSpeed));
+          player.y = Math.max(40, Math.min(560, player.y + dy * currentSpeed));
+        }
+
+        // 2. עדכון סבלנות של בקשות שכנים + שיגור AI
+        state.houses.forEach(house => {
+          if (house.currentRequest) {
+            const req = house.currentRequest;
+            req.patience -= (100 / (req.duration * 60)); // ירידה בפריים
+
+            // שיגור AI מתחרה כשהסבלנות יורדת מתחת ל-80%
+            if (req.patience < 80 && !req.aiDispatched) {
+              req.aiDispatched = true;
+              // מציאת בית שכן קרוב שישמש כנקודת יציאה ל-AI
+              const sourceHouse = state.houses.find(h => h.id !== house.id && !h.isPlayerHome && !h.isToledo) || state.houses[0];
+              state.aiCompetitors.push({
+                id: Date.now(),
+                name: 'שמעון השכן',
+                x: sourceHouse.x,
+                y: sourceHouse.y,
+                targetHouse: house,
+                item: req.item,
+                speed: 1.9
+              });
+            }
+
+            // פקיעת זמן הבקשה
+            if (req.patience <= 0) {
+              house.currentRequest = null;
+              showNotification(`❌ השכן מ-${house.name} התעצבן וביטל את הבקשה!`);
+            }
+          }
+        });
+
+        // 3. תנועת AI מתחרה
+        state.aiCompetitors.forEach((ai, idx) => {
+          const target = ai.targetHouse;
+          const dist = Math.hypot(target.x - ai.x, target.y - ai.y);
+
+          if (dist < 25) {
+            // ה-AI הגיע ראשון!
+            if (target.currentRequest) {
+              target.currentRequest = null;
+              showNotification(`😱 שמעון השכן הקדים אותך והביא ל-${target.name} את מה שביקש!`);
+            }
+            state.aiCompetitors.splice(idx, 1);
+          } else {
+            const angle = Math.atan2(target.y - ai.y, target.x - ai.x);
+            ai.x += Math.cos(angle) * ai.speed;
+            ai.y += Math.sin(angle) * ai.speed;
+          }
+        });
+
+        // 4. ייצור ותנועת כלי רכב בכביש (כביש בערכים Y: 240 עד 360)
+        if (Math.random() < 0.015 && state.vehicles.length < 3) {
+          const dir = Math.random() > 0.5 ? 1 : -1;
+          state.vehicles.push({
+            id: Date.now(),
+            x: dir === 1 ? -50 : 1050,
+            y: 270 + Math.random() * 60,
+            speed: (2.5 + Math.random() * 2) * dir,
+            type: Math.random() > 0.5 ? 'קלנועית 🛵' : 'טרקטור 🚜'
+          });
+        }
+
+        state.vehicles.forEach((v, idx) => {
+          v.x += v.speed;
+          // התנגשות עם שחקן בכביש
+          const pDist = Math.hypot(player.x - v.x, player.y - v.y);
+          if (pDist < 28 && player.stunned === 0) {
+            player.stunned = 90; // הלוצינציה/הלם של 1.5 שניות
+            showNotification(`💥 כמעט חטפת מ-${v.type}! החפצים נפלו לרצפה.`);
+            // הפלת חפצים
+            state.inventory.forEach(item => {
+              state.groundItems.push({ id: Date.now() + Math.random(), item, x: player.x, y: player.y });
+            });
+            setInventory([]);
+          }
+
+          if (v.x < -100 || v.x > 1100) {
+            state.vehicles.splice(idx, 1);
+          }
+        });
+
+        // 5. איסוף חפצים מהרצפה
+        state.groundItems.forEach((gItem, idx) => {
+          const dist = Math.hypot(player.x - gItem.x, player.y - gItem.y);
+          if (dist < 30 && state.inventory.length < 2) {
+            setInventory(prev => [...prev, gItem.item]);
+            state.groundItems.splice(idx, 1);
+            showNotification(`רמת מהרצפה: ${gItem.item.icon} ${gItem.item.name}`);
+          }
+        });
+      };
+
+      // --- ציור המפה ב-CANVAS ---
+      const renderCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const state = stateRef.current;
+
+        // רקע דשא קיבוצי
+        ctx.fillStyle = '#1e3a1e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // מדרכות (צפון ודרום)
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(0, 160, canvas.width, 50);
+        ctx.fillRect(0, 390, canvas.width, 50);
+
+        // כביש מרכזי
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(0, 210, canvas.width, 180);
+
+        // קו קווקוו צהוב בכביש
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([20, 15]);
+        ctx.beginPath();
+        ctx.moveTo(0, 300);
+        ctx.lineTo(canvas.width, 300);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // ציור בתים
+        state.houses.forEach(house => {
+          // גוף הבית
+          if (house.isToledo) {
+            ctx.fillStyle = '#f59e0b'; // זהב לאחוזת טולדו
+          } else if (house.isPlayerHome) {
+            ctx.fillStyle = '#3b82f6'; // כחול לבית השחקן
+          } else {
+            ctx.fillStyle = '#e2e8f0';
+          }
+
+          const width = house.isToledo ? 110 : 80;
+          const height = 70;
+          const hX = house.x - width / 2;
+          const hY = house.y - height / 2;
+
+          ctx.fillRect(hX, hY, width, height);
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(hX, hY, width, height);
+
+          // כותרת הבית
+          ctx.fillStyle = house.isToledo ? '#fef08a' : '#ffffff';
+          ctx.font = 'bold 12px Rubik';
+          ctx.textAlign = 'center';
+          ctx.fillText(house.name, house.x, house.y + (house.side === 'N' ? -45 : 55));
+
+          // בועת בקשה במידה ויש
+          if (house.currentRequest) {
+            const req = house.currentRequest;
+            const bubbleY = house.y + 10;
+
+            // עיגול בועה
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(house.x, bubbleY, 22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = req.patience < 30 ? '#ef4444' : '#10b981';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // אייקון חפץ
+            ctx.font = '18px Rubik';
+            ctx.fillText(req.item.icon, house.x, bubbleY + 6);
+
+            // סרגל סבלנות קטן
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillRect(house.x - 20, bubbleY - 30, 40, 6);
+            ctx.fillStyle = req.patience < 30 ? '#ef4444' : '#10b981';
+            ctx.fillRect(house.x - 20, bubbleY - 30, (req.patience / 100) * 40, 6);
+          }
+        });
+
+        // ציור חפצים מופלים על הרצפה
+        state.groundItems.forEach(g => {
+          ctx.font = '20px Rubik';
+          ctx.fillText(g.item.icon, g.x, g.y);
+        });
+
+        // ציור AI מתחרה
+        state.aiCompetitors.forEach(ai => {
+          ctx.fillStyle = '#ef4444'; // אדום למתחרים
+          ctx.beginPath();
+          ctx.arc(ai.x, ai.y, 14, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = '12px Rubik';
+          ctx.fillText(ai.item.icon, ai.x, ai.y - 18);
+        });
+
+        // ציור כלי רכב בכביש
+        state.vehicles.forEach(v => {
+          ctx.font = '26px Rubik';
+          ctx.fillText(v.type.includes('טרקטור') ? '🚜' : '🛵', v.x, v.y);
+        });
+
+        // ציור שחקן
+        const p = state.player;
+        ctx.fillStyle = p.stunned > 0 ? '#ef4444' : '#10b981'; // ירוק לשחקן
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px Rubik';
+        ctx.fillText('אתה', p.x, p.y - 22);
+
+        // ציור חפצים שהשחקן נושא מעל הראש
+        if (state.inventory.length > 0) {
+          const invIcons = state.inventory.map(i => i.icon).join(' ');
+          ctx.font = '14px Rubik';
+          ctx.fillText(invIcons, p.x, p.y + 32);
+        }
+      };
+
+      return (
+        <div class="flex flex-col items-center bg-slate-800 rounded-xl p-4 shadow-2xl border border-slate-700">
+          
+          {/* סרגל עליון - HUD */}
+          <div class="w-full flex justify-between items-center bg-slate-900 p-3 rounded-lg mb-3 border border-slate-700 text-sm md:text-base">
+            <div class="flex items-center gap-4">
+              <span class="font-bold text-yellow-400">🏆 ניקוד: {score}</span>
+              <span class="font-bold text-purple-400">⭐ טובות טולדו: {favors}</span>
+            </div>
+            <div class="font-mono text-xl text-emerald-400 font-extrabold">
+              ⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+            </div>
+            <button 
+              onClick={() => setGameState(gameState === 'PLAYING' ? 'START' : 'PLAYING')}
+              class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-xs font-bold">
+              {gameState === 'PLAYING' ? 'השהה' : 'חזור'}
+            </button>
+          </div>
+
+          {/* הודעת מערכת דינמית */}
+          <div class="w-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-center py-1.5 px-3 rounded-lg mb-3 font-medium text-sm animate-pulse">
+            {notification}
+          </div>
+
+          {/* זירת המשחק Canvas */}
+          <div class="relative rounded-lg overflow-hidden border-2 border-slate-600 shadow-inner">
+            <canvas 
+              ref={canvasRef} 
+              width={1000} 
+              height={600} 
+              class="w-full max-w-[1000px] h-auto block"
+            />
+
+            {/* מסך פתיחה */}
+            {gameState === 'START' && (
+              <div class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
+                <h1 class="text-4xl font-black text-emerald-400 mb-2">רחוב הברוש 🌳</h1>
+                <p class="text-slate-300 max-w-md mb-6 leading-relaxed">
+                  עזרו לשכנים בקיבוץ דפנה להשיג את החפצים שהם צריכים לפני ששמעון השכן יקדים אתכם!
+                </p>
+                <div class="bg-slate-900 p-4 rounded-lg mb-6 text-right text-xs text-slate-300 space-y-1 border border-slate-800">
+                  <p>🎮 <b>מקשים:</b> חצים / WASD לתנועה ברחוב.</p>
+                  <p>🖐️ <b>אינטראקציה:</b> מקש רווח (Space) ליד בית כדי לעזור/לקחת.</p>
+                  <p>👑 <b>משפחת טולדו:</b> מחזיקים את כל החפצים בעולם, אך דורשים שיחת חולין סבלנית!</p>
+                </div>
+                <button 
+                  onClick={startGame}
+                  class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl px-8 py-3 rounded-full shadow-lg transition transform hover:scale-105">
+                  התחל למשחק! 🚀
+                </button>
+              </div>
+            )}
+
+            {/* מסך סיום משחק */}
+            {gameState === 'GAME_OVER' && (
+              <div class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center">
+                <h2 class="text-3xl font-black text-yellow-400 mb-2">הזמן הסתיים! ⏰</h2>
+                <p class="text-xl text-slate-200 mb-4">השגת בסך הכל: <span class="font-bold text-emerald-400">{score}</span> נקודות!</p>
+                <button 
+                  onClick={startGame}
+                  class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-lg px-6 py-2.5 rounded-full shadow-lg">
+                  שחק שוב 🔄
+                </button>
+              </div>
+            )}
+
+            {/* דיאלוג אחוזת טולדו Modal */}
+            {gameState === 'TOLEDO' && (
+              <div class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
+                <div class="bg-slate-900 border-2 border-yellow-500 p-6 rounded-xl max-w-lg w-full shadow-2xl">
+                  <h2 class="text-2xl font-black text-yellow-400 mb-1">👑 אחוזת משפחת טולדו</h2>
+                  <p class="text-xs text-slate-400 mb-4">מלכי רחוב הברוש - יש להם הכל במחסן!</p>
+
+                  {!canPickToledoItem ? (
+                    <div class="py-6 space-y-4">
+                      <p class="text-slate-200 text-sm animate-pulse">
+                        ☕ טולדו מציע לך קפה, מראה תמונות מ-1982 ומספר על הימים הראשונים בדפנה...
+                      </p>
+                      <div class="text-3xl font-bold text-yellow-500 font-mono">
+                        00:0{toledoChatTimer}
+                      </div>
+                      {favors > 0 && (
+                        <button 
+                          onClick={skipToledoTalkWithFavor}
+                          class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-4 py-2 rounded-lg font-bold">
+                          תשלם 1 ⭐ טובה כדי לדלג על השיחה
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <p class="text-slate-300 text-sm mb-3">בחר חפץ אחד מהמחסן של טולדו:</p>
+                      <div class="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
+                        {Object.values(ITEMS).map(item => (
+                          <button 
+                            key={item.id}
+                            onClick={() => pickToledoItem(item)}
+                            class="bg-slate-800 hover:bg-yellow-500/20 border border-slate-700 hover:border-yellow-500 p-2 rounded flex flex-col items-center gap-1 transition">
+                            <span class="text-2xl">{item.icon}</span>
+                            <span class="text-xs font-bold text-slate-200">{item.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={() => setGameState('PLAYING')}
+                    class="mt-4 text-xs text-slate-400 hover:text-white underline">
+                    יציאה לרחוב
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* סרגל התיק האישי (Inventory) שבתחתית */}
+          <div class="w-full mt-3 bg-slate-900 p-3 rounded-lg border border-slate-700 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-slate-400">🎒 התיק שלך (עד 2 חפצים):</span>
+              <div class="flex gap-2">
+                {inventory.length === 0 && <span class="text-xs text-slate-500">התיק ריק</span>}
+                {inventory.map((item, idx) => (
+                  <div key={idx} class="bg-slate-800 border border-slate-600 px-3 py-1 rounded-lg flex items-center gap-2 text-sm">
+                    <span>{item.icon}</span>
+                    <span class="font-medium text-xs">{item.name}</span>
+                    <button 
+                      onClick={() => dropItem(idx)}
+                      title="הפל לרצפה"
+                      class="text-xs text-red-400 hover:text-red-300 font-bold mr-1">
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div class="text-xs text-slate-400 hidden md:block">
+              חפצים כבדים (מכסחת דשא/מקדחה) מאיטים את מהירות ההליכה שלך!
+            </div>
+          </div>
+
+        </div>
+      );
+    }
+
+    // הזרקת האפליקציה ל-DOM
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<CypressStreetGame />);
+  </script>
+</body>
+</html>
+
