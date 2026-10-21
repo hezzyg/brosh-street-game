@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>רחוב הברוש - קיבוץ דפנה</title>
 
   <!-- Phaser 3 CDN -->
@@ -28,13 +31,22 @@
       -webkit-user-select: none;
     }
     body, html {
-      height: 100%;
-      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      width: 100vw;
       margin: 0;
       padding: 0;
       overflow: hidden;
       font-family: 'Rubik', sans-serif;
       background-color: #020617;
+      box-sizing: border-box;
+    }
+    #root {
+      height: 100%;
+      height: 100dvh;
+      width: 100vw;
+      position: relative;
+      overflow: hidden;
     }
     canvas {
       display: block;
@@ -781,6 +793,7 @@
       const [cornerToast, setCornerToast] = useState(null); // Corner Toast Notifications
       const [isMuted, setIsMuted] = useState(false);
       const [isPortrait, setIsPortrait] = useState(window.innerHeight > window.innerWidth);
+      const [isFullscreen, setIsFullscreen] = useState(false);
       const [virtualKeys, setVirtualKeys] = useState({ up: false, down: false, left: false, right: false });
 
       const [toledoChatTimer, setToledoChatTimer] = useState(0);
@@ -820,278 +833,47 @@
 
         const game = new Phaser.Game(config);
 
-        const handleResize = () => setIsPortrait(window.innerHeight > window.innerWidth);
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-          window.removeEventListener('resize', handleResize);
-          game.destroy(true);
-        };
-      }, []);
-
-      useEffect(() => {
-        window.gameBridge.onOpenToledo = () => {
-          setGameState('TOLEDO');
-          setToledoChatTimer(3);
-          setCanPickToledoItem(false);
-
-          const timer = setInterval(() => {
-            setToledoChatTimer(prev => {
-              if (prev <= 1) {
-                clearInterval(timer);
-                setCanPickToledoItem(true);
-                return 0;
-              }
-              return prev - 1;
-            });
-          }, 1000);
-        };
-
-        window.gameBridge.onRestockHome = () => {
-          setInventory(prev => {
-            if (prev.length >= 3) {
-              triggerToast('הבית שלך מלא (3/3 חפצים)! לחץ ✕ ליד חפץ בתחתית כדי לפנות מקום.', '🏠');
-              return prev;
-            }
-            sound.playPickup();
-            const basic = [ITEMS.milk, ITEMS.eggs, ITEMS.screwdriver];
-            const added = basic[Math.floor(Math.random() * basic.length)];
-            triggerToast(`לקחת מהמזווה בבית: ${added.name}`, '📦');
-            return [...prev, added];
-          });
-        };
-
-        window.gameBridge.onFulfillRequest = (house) => {
-          const reqItem = house.currentRequest.item;
-          setInventory(prevInv => {
-            const itemIdx = prevInv.findIndex(i => i.id === reqItem.id);
-            if (itemIdx !== -1) {
-              sound.playDeliverSuccess();
-              const newInv = [...prevInv];
-              newInv.splice(itemIdx, 1);
-
-              const gainedPoints = reqItem.points * combo;
-              setScore(s => s + gainedPoints);
-              setFavors(f => f + 1);
-              setCombo(c => Math.min(c + 1, 4));
-
-              house.currentRequest = null;
-
-              const gifts = [ITEMS.drill, ITEMS.seinfeld, ITEMS.sourdough, ITEMS.flamingo, ITEMS.pokemon];
-              const gift = gifts[Math.floor(Math.random() * gifts.length)];
-              triggerToast(`✨ מעולה! הבאת ל-${house.name} את ה-${reqItem.name}! קיבלת מתנה!`, '🎁');
-
-              if (newInv.length < 3) return [...newInv, gift];
-              return newInv;
-            } else {
-              if (prevInv.length === 0) {
-                triggerToast(`💡 הבית שלך ריק! קפוץ לבית 1 (שלך) או לאחוזת טולדו 👑 להביא ${reqItem.name}!`, '👑');
-              } else {
-                triggerToast(`💡 חסר לך ${reqItem.name}! (יש לך: ${prevInv.map(i => i.name).join(', ')}). קפוץ לאחוזת טולדו 👑 בצד שמאל להשיג אותו!`, '👑');
-              }
-              return prevInv;
-            }
-          });
-        };
-
-        window.gameBridge.onHitVehicle = (name, isObstacle) => {
-          triggerToast(isObstacle ? `🍌 החלקת על ${name}!` : `💥 נתקלת ב-${name}! החפצים עפו לרצפה.`, '⚠️');
-          if (!isObstacle) {
-            setInventory(prev => {
-              const scene = window.gameBridge.phaserScene;
-              if (scene && scene.player) {
-                prev.forEach(item => scene.dropItemOnGround(item, scene.player.x, scene.player.y));
-              }
-              return [];
-            });
+        const handleResize = () => {
+          setIsPortrait(window.innerHeight > window.innerWidth);
+          if (game && game.scale) {
+            game.scale.refresh();
           }
         };
 
-        window.gameBridge.onPickupGroundItem = (item) => {
-          let success = false;
-          setInventory(prev => {
-            if (prev.length < 3) {
-              success = true;
-              triggerToast(`רמת מהרצפה: ${item.name}`, '📦');
-              return [...prev, item];
-            } else {
-              triggerToast('הבית שלך מלא!', '🏠');
-              return prev;
-            }
-          });
-          return success;
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleResize);
+
+        const handleFullscreenChange = () => {
+          setIsFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement));
         };
-
-        window.gameBridge.onAiDelivered = (aiName, houseName) => {
-          setCombo(1);
-          triggerToast(`😱 ${aiName} השכן הקדים אותך והביא ל-${houseName} את המבוקש!`, '🏃‍♂️');
-        };
-      }, [combo]);
-
-      useEffect(() => {
-        if (gameState !== 'PLAYING') return;
-        const timer = setInterval(() => {
-          setTimeLeft(prev => {
-            if (prev <= 1) {
-              sound.stopBGM();
-              setGameState('GAME_OVER');
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-        return () => clearInterval(timer);
-      }, [gameState]);
-
-      useEffect(() => {
-        if (gameState !== 'PLAYING') return;
-
-        const reqInterval = setInterval(() => {
-          const scene = window.gameBridge.phaserScene;
-          if (!scene) return;
-
-          const eligible = scene.housesData.filter(h => !h.isPlayerHome && !h.isToledo && !h.currentRequest);
-          if (eligible.length === 0) return;
-
-          const targetHouse = eligible[Math.floor(Math.random() * eligible.length)];
-          const itemKeys = Object.keys(ITEMS);
-          const item = ITEMS[itemKeys[Math.floor(Math.random() * itemKeys.length)]];
-
-          targetHouse.currentRequest = { item, patience: 100, duration: 20, aiDispatched: false };
-          sound.playNewRequest(); // Audio chime for new request
-        }, 4500);
-
-        const vehicleInterval = setInterval(() => {
-          const scene = window.gameBridge.phaserScene;
-          if (scene) scene.spawnVehicle();
-        }, 4000);
-
-        const aiCheckInterval = setInterval(() => {
-          const scene = window.gameBridge.phaserScene;
-          if (!scene) return;
-          scene.housesData.forEach(h => {
-            if (h.currentRequest && h.currentRequest.patience < 75 && !h.currentRequest.aiDispatched) {
-              h.currentRequest.aiDispatched = true;
-              scene.spawnAiCompetitor(h, h.currentRequest.item);
-            }
-            if (h.currentRequest) {
-              h.currentRequest.patience -= 5;
-              if (h.currentRequest.patience <= 0) {
-                h.currentRequest = null;
-                setCombo(1);
-                triggerToast(`❌ הבקשה מ-${h.name} פגה!`, '⏰');
-              }
-            }
-          });
-        }, 1000);
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
         return () => {
-          clearInterval(reqInterval);
-          clearInterval(vehicleInterval);
-          clearInterval(aiCheckInterval);
+          window.removeEventListener('resize', handleResize);
+          window.removeEventListener('orientationchange', handleResize);
+          document.removeEventListener('fullscreenchange', handleFullscreenChange);
+          document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+          game.destroy(true);
         };
-      }, [gameState]);
-
-      const startGame = () => {
-        sound.init();
-        sound.startBGM();
-
-        const keys = Object.keys(ITEMS);
-        const item1 = ITEMS[keys[Math.floor(Math.random() * keys.length)]];
-        let item2 = ITEMS[keys[Math.floor(Math.random() * keys.length)]];
-        while (item2.id === item1.id) item2 = ITEMS[keys[Math.floor(Math.random() * keys.length)]];
-
-        const initialInv = [item1, item2];
-        setInventory(initialInv);
-        setScore(0);
-        setFavors(1);
-        setCombo(1);
-        setTimeLeft(180);
-        setGameState('PLAYING');
-
-        setTimeout(() => {
-          const scene = window.gameBridge.phaserScene;
-          if (!scene) return;
-          const eligible = scene.housesData.filter(h => !h.isPlayerHome && !h.isToledo);
-          const target = eligible[Math.floor(Math.random() * eligible.length)];
-          const matchItem = Math.random() > 0.5 ? item1 : item2;
-
-          target.currentRequest = { item: matchItem, patience: 100, duration: 25, aiDispatched: false };
-          sound.playNewRequest();
-          triggerToast(`🚀 התחלה מהירה! ל-${target.name} דרוש ${matchItem.name} - יש בבית!`, '🌟');
-        }, 600);
-      };
-
-      const toggleSound = () => {
-        sound.muted = !sound.muted;
-        setIsMuted(sound.muted);
-      };
-
-      const pickToledoItem = (item) => {
-        sound.playPickup();
-        if (inventory.length >= 3) {
-          alert('הבית שלך מלא! (מקסימום 3 חפצים)');
-          return;
-        }
-        setInventory(prev => [...prev, item]);
-        setGameState('PLAYING');
-        triggerToast(`לקחת מטולדו: ${item.name}!`, '👑');
-      };
-
-      const skipToledoTalkWithFavor = () => {
-        if (favors < 1) return;
-        sound.playClick();
-        setFavors(f => f - 1);
-        setCanPickToledoItem(true);
-        setToledoChatTimer(0);
-      };
-
-      const dropItem = (idx) => {
-        if (idx >= inventory.length) return;
-        sound.playClick();
-        const itemToDrop = inventory[idx];
-        const newInv = [...inventory];
-        newInv.splice(idx, 1);
-        setInventory(newInv);
-
-        const scene = window.gameBridge.phaserScene;
-        if (scene && scene.player) {
-          scene.dropItemOnGround(itemToDrop, scene.player.x, scene.player.y);
-        }
-        triggerToast(`הפלת ${itemToDrop.name} על המדרכה.`, '📦');
-      };
-
-      const setTouchKey = (key, active) => {
-        setVirtualKeys(prev => ({ ...prev, [key]: active }));
-      };
-
-      return (
-        <div class="h-full w-full relative bg-slate-950 overflow-hidden flex flex-col justify-between">
-          
-          {/* Orientation Warning */}
-          {isPortrait && (
-            <div class="absolute inset-0 bg-slate-950/98 z-50 flex flex-col items-center justify-center p-6 text-center">
-              <div class="text-6xl mb-4 animate-bounce">📱🔄</div>
-              <h2 class="text-2xl font-black text-yellow-400 mb-2">סובב את המכשיר למצב אופקי</h2>
-              <p class="text-slate-300 text-sm max-w-xs">
-                רחוב הברוש מתוכנן למצב אופקי (Landscape) לתצוגת רחוב מלאה!
-              </p>
-            </div>
-          )}
-
-          {/* 1. TOP FLOATING HUD OVERLAY */}
-          <header class="absolute top-0 left-0 right-0 z-20 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/60 px-4 py-2 shadow-lg flex justify-between items-center h-11 text-xs sm:text-sm">
-            <div class="flex items-center gap-4">
-              <span class="font-black text-yellow-400">🏆 {score}pt</span>
-              <span class="font-bold text-purple-400">⭐ {favors}</span>
-              {combo > 1 && <span class="font-black text-pink-500 animate-pulse">x{combo} Combo!</span>}
-            </div>
-            
-            <div class="font-mono text-lg sm:text-2xl text-emerald-400 font-black">
-              ⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-            </div>
-
+      }, []);
+<!-- ... existing code ... bg-slate-900/80 backdrop-blur-md border-b border-slate-800/60 -->
             <div class="flex items-center gap-2">
+              <button 
+                onClick={() => {
+                  const doc = document.documentElement;
+                  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    if (doc.requestFullscreen) doc.requestFullscreen().catch(() => {});
+                    else if (doc.webkitRequestFullscreen) doc.webkitRequestFullscreen();
+                  } else {
+                    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                  }
+                }}
+                class="p-1.5 bg-slate-800/80 rounded-lg text-xs hover:bg-slate-700"
+                title="מסך מלא">
+                {isFullscreen ? '🔍' : '⛶'}
+              </button>
               <button onClick={toggleSound} class="p-1.5 bg-slate-800/80 rounded-lg text-xs hover:bg-slate-700">
                 {isMuted ? '🔇' : '🔊'}
               </button>
