@@ -1,126 +1,939 @@
 <!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html lang="he" dir="rtl" class="h-full w-full">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>רחוב הברוש - קיבוץ דפנה</title>
+
+  <!-- Phaser 3 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
 
   <!-- React 18 & ReactDOM CDN -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 
-  <!-- Babel Standalone (תרגום JSX בדפדפן) -->
+  <!-- Babel Standalone CDN -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- פונט רוביק בעברית -->
-  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;800&display=swap" rel="stylesheet">
+  <!-- Google Font: Rubik -->
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet">
 
   <style>
-    body {
-      font-family: 'Rubik', sans-serif;
+    * {
+      touch-action: manipulation;
       user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: 'Rubik', sans-serif;
+      background-color: #020617;
     }
     canvas {
-      image-rendering: pixelated;
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      image-rendering: auto;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 4px;
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(120%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .animate-slide-in-right {
+      animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
   </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-2">
+<body class="bg-slate-950 text-white h-full w-full overflow-hidden">
 
-  <div id="root" class="w-full max-w-5xl"></div>
+  <div id="root" class="h-full w-full relative"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // --- הגדרת חפצים במשחק ---
-    const ITEMS = {
-      milk: { id: 'milk', name: 'חלב', icon: '🥛', weight: 1, points: 30 },
-      eggs: { id: 'eggs', name: 'ביצים', icon: '🥚', weight: 1, points: 30 },
-      screwdriver: { id: 'screwdriver', name: 'מברג', icon: '🪛', weight: 1, points: 40 },
-      lawnmower: { id: 'lawnmower', name: 'מכסחת דשא', icon: '🚜', weight: 2, points: 100 },
-      drill: { id: 'drill', name: 'מקדחה', icon: '🔌', weight: 2, points: 80 },
-      sourdough: { id: 'sourdough', name: 'מחמצת 10 שנים', icon: '🍞', weight: 1, points: 120 },
-      flamingo: { id: 'flamingo', name: 'פלמינגו מפלסטיק', icon: '🦩', weight: 1, points: 150 },
-      pokemon: { id: 'pokemon', name: 'קלף פוקימון', icon: '🃏', weight: 1, points: 180 },
-      seinfeld: { id: 'seinfeld', name: 'קלטת סיינפלד', icon: '📼', weight: 1, points: 110 }
+    // ==========================================
+    // 1. EMBEDDED SVG GRAPHICS DATA URIS
+    // ==========================================
+    const createSVGDataURI = (svgString) => {
+      const cleaned = svgString.trim();
+      const base64 = btoa(unescape(encodeURIComponent(cleaned)));
+      return `data:image/svg+xml;base64,${base64}`;
     };
 
-    // --- הגדרת בתים ברחוב ---
-    const INITIAL_HOUSES = [
-      // צד צפון (זוגי)
-      { id: 2, name: 'בית 2 (משפחת כהן)', x: 150, y: 80, side: 'N' },
-      { id: 4, name: 'בית 4 (משפחת לוי)', x: 330, y: 80, side: 'N' },
-      { id: 'toledo', name: 'אחוזת טולדו 👑', x: 500, y: 70, side: 'N', isToledo: true },
-      { id: 8, name: 'בית 8 (משפחת ישראלי)', x: 670, y: 80, side: 'N' },
-      { id: 10, name: 'בית 10 (משפחת אברהם)', x: 850, y: 80, side: 'N' },
+    const SVG_ASSETS = {
+      player: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+          <circle cx="32" cy="32" r="28" fill="rgba(0,0,0,0.25)"/>
+          <circle cx="32" cy="32" r="18" fill="#38bdf8" stroke="#0284c7" stroke-width="3"/>
+          <circle cx="32" cy="22" r="12" fill="#fde047"/>
+          <circle cx="28" cy="20" r="2.5" fill="#0f172a"/>
+          <circle cx="36" cy="20" r="2.5" fill="#0f172a"/>
+          <path d="M 27 26 Q 32 30 37 26" stroke="#0f172a" stroke-width="2" fill="none"/>
+          <path d="M 16 20 Q 32 8 48 20" stroke="#0369a1" stroke-width="4" fill="none"/>
+        </svg>
+      `),
 
-      // צד דרום (אי-זוגי)
-      { id: 1, name: 'הבית שלך (בית 1)', x: 150, y: 520, side: 'S', isPlayerHome: true },
-      { id: 3, name: 'בית 3 (משפחת מזרחי)', x: 330, y: 520, side: 'S' },
-      { id: 5, name: 'בית 5 (משפחת גולן)', x: 500, y: 520, side: 'S' },
-      { id: 7, name: 'בית 7 (משפחת שטרן)', x: 670, y: 520, side: 'S' },
-      { id: 9, name: 'בית 9 (משפחת פרידמן)', x: 850, y: 520, side: 'S' },
+      ai_neighbor: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+          <circle cx="32" cy="32" r="26" fill="rgba(0,0,0,0.25)"/>
+          <circle cx="32" cy="32" r="18" fill="#ef4444" stroke="#b91c1c" stroke-width="3"/>
+          <circle cx="32" cy="22" r="12" fill="#fed7aa"/>
+          <circle cx="28" cy="20" r="2" fill="#0f172a"/>
+          <circle cx="36" cy="20" r="2" fill="#0f172a"/>
+          <path d="M 18 16 L 46 16 L 32 8 Z" fill="#b91c1c"/>
+        </svg>
+      `),
+
+      ai_female_1: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+          <circle cx="32" cy="32" r="26" fill="rgba(0,0,0,0.25)"/>
+          <circle cx="32" cy="32" r="18" fill="#ec4899" stroke="#be185d" stroke-width="3"/>
+          <circle cx="32" cy="22" r="12" fill="#fde047"/>
+          <circle cx="28" cy="20" r="2" fill="#0f172a"/>
+          <circle cx="36" cy="20" r="2" fill="#0f172a"/>
+          <path d="M 16 16 C 16 6 48 6 48 16 C 48 24 16 24 16 16 Z" fill="#78350f"/>
+        </svg>
+      `),
+
+      ai_male_2: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+          <circle cx="32" cy="32" r="26" fill="rgba(0,0,0,0.25)"/>
+          <circle cx="32" cy="32" r="18" fill="#10b981" stroke="#047857" stroke-width="3"/>
+          <circle cx="32" cy="22" r="12" fill="#fbcfe8"/>
+          <circle cx="28" cy="20" r="2" fill="#0f172a"/>
+          <circle cx="36" cy="20" r="2" fill="#0f172a"/>
+          <rect x="20" y="8" width="24" height="8" fill="#1e293b" rx="2"/>
+        </svg>
+      `),
+
+      ai_female_2: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+          <circle cx="32" cy="32" r="26" fill="rgba(0,0,0,0.25)"/>
+          <circle cx="32" cy="32" r="18" fill="#f97316" stroke="#c2410c" stroke-width="3"/>
+          <circle cx="32" cy="22" r="12" fill="#fed7aa"/>
+          <circle cx="28" cy="20" r="2" fill="#0f172a"/>
+          <circle cx="36" cy="20" r="2" fill="#0f172a"/>
+          <path d="M 18 14 Q 32 4 46 14 Q 48 28 46 32 Q 32 26 18 32 Z" fill="#b45309"/>
+        </svg>
+      `),
+
+      house_toledo: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 100" width="140" height="100">
+          <rect x="10" y="30" width="120" height="65" rx="6" fill="#fef08a" stroke="#ca8a04" stroke-width="4"/>
+          <polygon points="5,30 70,5 135,30" fill="#a16207" stroke="#713f12" stroke-width="4"/>
+          <polygon points="15,30 70,10 125,30" fill="#ca8a04"/>
+          <rect x="55" y="55" width="30" height="40" fill="#78350f" rx="3"/>
+          <circle cx="78" cy="75" r="3" fill="#fef08a"/>
+          <rect x="25" y="45" width="22" height="22" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="2" rx="2"/>
+          <rect x="93" y="45" width="22" height="22" fill="#bfdbfe" stroke="#1d4ed8" stroke-width="2" rx="2"/>
+          <path d="M 60 18 L 70 8 L 80 18 L 75 18 L 75 24 L 65 24 L 65 18 Z" fill="#eab308" stroke="#713f12"/>
+        </svg>
+      `),
+
+      house_player: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90" width="120" height="90">
+          <rect x="10" y="25" width="100" height="60" rx="4" fill="#60a5fa" stroke="#1d4ed8" stroke-width="3"/>
+          <polygon points="5,25 60,5 115,25" fill="#1e40af" stroke="#1e3a8a" stroke-width="3"/>
+          <rect x="48" y="50" width="24" height="35" fill="#1e293b" rx="2"/>
+          <rect x="20" y="40" width="18" height="18" fill="#93c5fd" stroke="#1d4ed8" stroke-width="2" rx="2"/>
+          <rect x="82" y="40" width="18" height="18" fill="#93c5fd" stroke="#1d4ed8" stroke-width="2" rx="2"/>
+          <circle cx="60" cy="18" r="6" fill="#facc15"/>
+        </svg>
+      `),
+
+      house_standard: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90" width="120" height="90">
+          <rect x="10" y="25" width="100" height="60" rx="4" fill="#f8fafc" stroke="#64748b" stroke-width="3"/>
+          <polygon points="5,25 60,5 115,25" fill="#dc2626" stroke="#991b1b" stroke-width="3"/>
+          <polygon points="12,25 60,9 108,25" fill="#ef4444"/>
+          <rect x="50" y="50" width="20" height="35" fill="#78350f" rx="2"/>
+          <rect x="20" y="40" width="18" height="18" fill="#bfdbfe" stroke="#3b82f6" stroke-width="2" rx="2"/>
+          <rect x="82" y="40" width="18" height="18" fill="#bfdbfe" stroke="#3b82f6" stroke-width="2" rx="2"/>
+        </svg>
+      `),
+
+      tree_cypress: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 96" width="48" height="96">
+          <ellipse cx="24" cy="90" rx="16" ry="5" fill="rgba(0,0,0,0.3)"/>
+          <rect x="21" y="65" width="6" height="25" fill="#422006"/>
+          <ellipse cx="24" cy="45" rx="18" ry="40" fill="#022c22"/>
+          <ellipse cx="22" cy="40" rx="13" ry="32" fill="#047857"/>
+          <ellipse cx="20" cy="35" rx="8" ry="22" fill="#10b981"/>
+        </svg>
+      `),
+
+      cart_kibbutz: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 40" width="64" height="40">
+          <rect x="4" y="10" width="56" height="22" rx="4" fill="#15803d" stroke="#166534" stroke-width="2"/>
+          <rect x="10" y="2" width="44" height="10" rx="2" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+          <circle cx="14" cy="32" r="7" fill="#1e293b"/>
+          <circle cx="50" cy="32" r="7" fill="#1e293b"/>
+          <circle cx="14" cy="32" r="3" fill="#94a3b8"/>
+          <circle cx="50" cy="32" r="3" fill="#94a3b8"/>
+          <rect x="46" y="14" width="10" height="8" fill="#fef08a" rx="1"/>
+        </svg>
+      `),
+
+      tractor: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 48" width="72" height="48">
+          <rect x="8" y="12" width="40" height="24" fill="#b91c1c" stroke="#7f1d1d" stroke-width="2" rx="3"/>
+          <rect x="36" y="4" width="28" height="32" fill="#dc2626" stroke="#7f1d1d" stroke-width="2" rx="3"/>
+          <circle cx="18" cy="36" r="10" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+          <circle cx="52" cy="34" r="13" fill="#0f172a" stroke="#475569" stroke-width="3"/>
+          <circle cx="18" cy="36" r="4" fill="#f8fafc"/>
+          <circle cx="52" cy="34" r="5" fill="#f8fafc"/>
+          <rect x="12" y="2" width="4" height="12" fill="#334155"/>
+        </svg>
+      `),
+
+      scooter_kid: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="6" y="38" width="36" height="4" fill="#06b6d4" rx="2"/>
+          <circle cx="10" cy="40" r="4" fill="#0f172a"/>
+          <circle cx="38" cy="40" r="4" fill="#0f172a"/>
+          <rect x="34" y="14" width="3" height="24" fill="#64748b"/>
+          <circle cx="26" cy="16" r="10" fill="#06b6d4"/>
+          <circle cx="26" cy="18" r="7" fill="#fed7aa"/>
+        </svg>
+      `),
+
+      cow: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 40" width="56" height="40">
+          <rect x="8" y="8" width="40" height="24" rx="8" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+          <circle cx="18" cy="16" r="6" fill="#0f172a"/>
+          <circle cx="36" cy="22" r="7" fill="#0f172a"/>
+          <rect x="42" y="12" width="12" height="14" rx="4" fill="#f43f5e"/>
+          <rect x="12" y="30" width="4" height="8" fill="#0f172a"/>
+          <rect x="22" y="30" width="4" height="8" fill="#0f172a"/>
+          <rect x="32" y="30" width="4" height="8" fill="#0f172a"/>
+          <rect x="42" y="30" width="4" height="8" fill="#0f172a"/>
+        </svg>
+      `),
+
+      bamba: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+          <rect x="6" y="4" width="24" height="28" rx="4" fill="#facc15" stroke="#ca8a04" stroke-width="2"/>
+          <path d="M 10 12 Q 18 6 26 12 Q 18 18 10 12 Z" fill="#ef4444"/>
+          <circle cx="18" cy="22" r="5" fill="#f97316"/>
+        </svg>
+      `),
+
+      // Item Icons - Clean Vector Graphics
+      milk: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="12" y="10" width="24" height="34" rx="4" fill="#60a5fa" stroke="#1d4ed8" stroke-width="3"/>
+          <polygon points="12,10 24,2 36,10" fill="#93c5fd" stroke="#1d4ed8" stroke-width="2"/>
+          <rect x="15" y="20" width="18" height="16" fill="#ffffff" rx="2"/>
+          <path d="M 19 24 Q 24 21 29 24 T 29 32" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+        </svg>
+      `),
+
+      eggs: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="6" y="18" width="36" height="24" rx="6" fill="#b45309" stroke="#78350f" stroke-width="3"/>
+          <ellipse cx="16" cy="18" rx="7" ry="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+          <ellipse cx="32" cy="18" rx="7" ry="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+        </svg>
+      `),
+
+      screwdriver: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="6" y="20" width="18" height="8" rx="3" fill="#eab308" stroke="#854d0e" stroke-width="2"/>
+          <rect x="24" y="22" width="18" height="4" fill="#94a3b8" stroke="#475569" stroke-width="1.5"/>
+          <polygon points="42,21 46,24 42,27" fill="#64748b"/>
+        </svg>
+      `),
+
+      lawnmower: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="8" y="20" width="32" height="18" rx="5" fill="#ef4444" stroke="#991b1b" stroke-width="3"/>
+          <circle cx="14" cy="36" r="6" fill="#1e293b" stroke="#f8fafc" stroke-width="2"/>
+          <circle cx="34" cy="36" r="6" fill="#1e293b" stroke="#f8fafc" stroke-width="2"/>
+          <path d="M 14 20 L 4 6" stroke="#475569" stroke-width="4" stroke-linecap="round"/>
+        </svg>
+      `),
+
+      drill: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="14" y="10" width="24" height="14" rx="4" fill="#f97316" stroke="#c2410c" stroke-width="3"/>
+          <rect x="20" y="24" width="10" height="18" rx="2" fill="#334155"/>
+          <rect x="4" y="15" width="10" height="4" fill="#94a3b8"/>
+        </svg>
+      `),
+
+      sourdough: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <ellipse cx="24" cy="24" rx="20" ry="14" fill="#d97706" stroke="#78350f" stroke-width="3"/>
+          <path d="M 12 20 Q 24 14 36 20 M 14 26 Q 24 20 34 26" stroke="#fef3c7" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+      `),
+
+      flamingo: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <path d="M 16 40 L 16 26 C 16 16 32 16 32 8 C 32 4 24 4 24 8" stroke="#ec4899" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <ellipse cx="16" cy="26" rx="10" ry="6" fill="#ec4899"/>
+        </svg>
+      `),
+
+      pokemon: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="10" y="6" width="28" height="36" rx="4" fill="#3b82f6" stroke="#facc15" stroke-width="3"/>
+          <circle cx="24" cy="24" r="9" fill="#ef4444" stroke="#0f172a" stroke-width="2"/>
+          <circle cx="24" cy="24" r="4" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+        </svg>
+      `),
+
+      seinfeld: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+          <rect x="6" y="12" width="36" height="24" rx="3" fill="#1e293b" stroke="#0f172a" stroke-width="3"/>
+          <rect x="10" y="16" width="28" height="10" fill="#fef08a"/>
+          <text x="24" y="24" font-size="8" font-weight="900" fill="#0f172a" text-anchor="middle">SEINFELD</text>
+        </svg>
+      `)
+    };
+
+    // ==========================================
+    // 2. WEB AUDIO SYNTHESIZER
+    // ==========================================
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+        this.bgmInterval = null;
+      }
+
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      }
+
+      playTone(freq, type, duration, vol = 0.1) {
+        if (this.muted || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+          gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + duration);
+        } catch (e) {}
+      }
+
+      playNewRequest() {
+        this.init();
+        this.playTone(587.33, 'sine', 0.12, 0.15); // D5
+        setTimeout(() => this.playTone(880, 'sine', 0.2, 0.18), 80); // A5
+      }
+
+      playPickup() {
+        this.init();
+        this.playTone(523, 'sine', 0.1, 0.15);
+        setTimeout(() => this.playTone(1046, 'sine', 0.15, 0.15), 60);
+      }
+
+      playDeliverSuccess() {
+        this.init();
+        const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+        notes.forEach((freq, idx) => {
+          setTimeout(() => this.playTone(freq, 'triangle', 0.2, 0.2), idx * 70);
+        });
+      }
+
+      playHit() {
+        this.init();
+        this.playTone(100, 'sawtooth', 0.3, 0.3);
+        setTimeout(() => this.playTone(60, 'sawtooth', 0.4, 0.3), 80);
+      }
+
+      playClick() {
+        this.init();
+        this.playTone(700, 'sine', 0.04, 0.08);
+      }
+
+      startBGM() {
+        this.init();
+        if (this.bgmInterval) return;
+        const melody = [261, 329, 392, 329, 293, 349, 440, 349];
+        let noteIdx = 0;
+        this.bgmInterval = setInterval(() => {
+          if (!this.muted) {
+            this.playTone(melody[noteIdx], 'sine', 0.22, 0.025);
+            noteIdx = (noteIdx + 1) % melody.length;
+          }
+        }, 300);
+      }
+
+      stopBGM() {
+        if (this.bgmInterval) {
+          clearInterval(this.bgmInterval);
+          this.bgmInterval = null;
+        }
+      }
+    }
+
+    const sound = new SoundEngine();
+
+    // ==========================================
+    // 3. GAME CONSTANTS & DATA
+    // ==========================================
+    const ITEMS = {
+      milk: { id: 'milk', name: 'חלב', icon: '🥛', weight: 1, points: 30, key: 'milk' },
+      eggs: { id: 'eggs', name: 'ביצים', icon: '🥚', weight: 1, points: 30, key: 'eggs' },
+      screwdriver: { id: 'screwdriver', name: 'מברג', icon: '🪛', weight: 1, points: 40, key: 'screwdriver' },
+      lawnmower: { id: 'lawnmower', name: 'מכסחת דשא', icon: '🚜', weight: 2, points: 100, key: 'lawnmower' },
+      drill: { id: 'drill', name: 'מקדחה', icon: '🔌', weight: 2, points: 80, key: 'drill' },
+      sourdough: { id: 'sourdough', name: 'מחמצת 10 שנים', icon: '🍞', weight: 1, points: 120, key: 'sourdough' },
+      flamingo: { id: 'flamingo', name: 'פלמינגו מפלסטיק', icon: '🦩', weight: 1, points: 150, key: 'flamingo' },
+      pokemon: { id: 'pokemon', name: 'קלף פוקימון', icon: '🃏', weight: 1, points: 180, key: 'pokemon' },
+      seinfeld: { id: 'seinfeld', name: 'קלטת סיינפלד', icon: '📼', weight: 1, points: 110, key: 'seinfeld' }
+    };
+
+    const HOUSES_CONFIG = [
+      // North side (even)
+      { id: 'toledo', name: 'אחוזת טולדו 👑', x: 120, y: 85, side: 'N', isToledo: true, spriteKey: 'house_toledo' },
+      { id: 2, name: 'בית 2 (כהן)', x: 310, y: 85, side: 'N', spriteKey: 'house_standard' },
+      { id: 4, name: 'בית 4 (לוי)', x: 500, y: 85, side: 'N', spriteKey: 'house_standard' },
+      { id: 8, name: 'בית 8 (ישראלי)', x: 690, y: 85, side: 'N', spriteKey: 'house_standard' },
+      { id: 10, name: 'בית 10 (אברהם)', x: 880, y: 85, side: 'N', spriteKey: 'house_standard' },
+
+      // South side (odd)
+      { id: 1, name: 'הבית שלך (בית 1)', x: 120, y: 515, side: 'S', isPlayerHome: true, spriteKey: 'house_player' },
+      { id: 3, name: 'בית 3 (מזרחי)', x: 310, y: 515, side: 'S', spriteKey: 'house_standard' },
+      { id: 5, name: 'בית 5 (גולן)', x: 500, y: 515, side: 'S', spriteKey: 'house_standard' },
+      { id: 7, name: 'בית 7 (שטרן)', x: 690, y: 515, side: 'S', spriteKey: 'house_standard' },
+      { id: 9, name: 'בית 9 (פרידמן)', x: 880, y: 515, side: 'S', spriteKey: 'house_standard' }
     ];
 
-    function CypressStreetGame() {
-      // --- מצבי משחק ---
-      const [gameState, setGameState] = useState('START'); // START, PLAYING, TOLEDO, GAME_OVER
+    window.gameBridge = {
+      reactState: null,
+      phaserScene: null
+    };
+
+    // ==========================================
+    // 4. PHASER 3 GAME SCENE
+    // ==========================================
+    class MainScene extends Phaser.Scene {
+      constructor() {
+        super({ key: 'MainScene' });
+      }
+
+      preload() {
+        Object.entries(SVG_ASSETS).forEach(([key, dataUri]) => {
+          this.load.image(key, dataUri);
+        });
+      }
+
+      create() {
+        window.gameBridge.phaserScene = this;
+
+        this.drawKibbutzMap();
+
+        this.housesGroup = this.physics.add.staticGroup();
+        this.housesData = JSON.parse(JSON.stringify(HOUSES_CONFIG));
+
+        this.housesData.forEach(h => {
+          const houseSprite = this.housesGroup.create(h.x, h.y, h.spriteKey);
+          houseSprite.setOrigin(0.5, 0.5);
+          houseSprite.houseData = h;
+
+          const labelColor = h.isToledo ? '#fef08a' : (h.isPlayerHome ? '#93c5fd' : '#ffffff');
+          this.add.text(h.x, h.y + (h.side === 'N' ? -54 : 48), h.name, {
+            fontFamily: 'Rubik',
+            fontSize: '12px',
+            fontWeight: 'bold',
+            color: labelColor,
+            stroke: '#000000',
+            strokeThickness: 3
+          }).setOrigin(0.5);
+        });
+
+        this.player = this.physics.add.sprite(120, 430, 'player');
+        this.player.setCollideWorldBounds(true);
+        this.player.setCircle(16, 16, 16);
+
+        this.playerLabel = this.add.text(120, 400, 'אתה 🙋‍♂️', {
+          fontFamily: 'Rubik',
+          fontSize: '12px',
+          fontWeight: '900',
+          color: '#38bdf8',
+          stroke: '#0f172a',
+          strokeThickness: 3
+        }).setOrigin(0.5);
+
+        this.aiCompetitors = this.physics.add.group();
+        this.vehicles = this.physics.add.group();
+        this.groundItemsGroup = this.physics.add.group();
+
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.wasd = this.input.keyboard.addKeys({
+          up: Phaser.Input.Keyboard.KeyCodes.W,
+          down: Phaser.Input.Keyboard.KeyCodes.S,
+          left: Phaser.Input.Keyboard.KeyCodes.A,
+          right: Phaser.Input.Keyboard.KeyCodes.D,
+          space: Phaser.Input.Keyboard.KeyCodes.SPACE,
+          e: Phaser.Input.Keyboard.KeyCodes.E
+        });
+
+        this.input.keyboard.on('keydown-SPACE', () => this.handleAction());
+        this.input.keyboard.on('keydown-E', () => this.handleAction());
+
+        this.physics.add.overlap(this.player, this.vehicles, this.handleVehicleHit, null, this);
+        this.physics.add.overlap(this.player, this.groundItemsGroup, this.handleItemPickup, null, this);
+      }
+
+      drawKibbutzMap() {
+        const graphics = this.add.graphics();
+
+        graphics.fillGradientStyle(0x152e14, 0x152e14, 0x1e3f1c, 0x1e3f1c, 1);
+        graphics.fillRect(0, 0, 1000, 600);
+
+        graphics.fillStyle(0x64748b, 1);
+        graphics.fillRect(0, 150, 1000, 55);
+        graphics.fillRect(0, 395, 1000, 55);
+
+        for (let x = 0; x < 1000; x += 30) {
+          const isRed = (x / 30) % 2 === 0;
+          graphics.fillStyle(isRed ? 0xdc2626 : 0xf8fafc, 1);
+          graphics.fillRect(x, 201, 30, 4);
+          graphics.fillRect(x, 395, 30, 4);
+        }
+
+        graphics.fillStyle(0x1f2937, 1);
+        graphics.fillRect(0, 205, 1000, 190);
+
+        graphics.lineStyle(4, 0xfacc15, 1);
+        graphics.beginPath();
+        for (let x = 0; x < 1000; x += 40) {
+          graphics.moveTo(x, 300);
+          graphics.lineTo(x + 20, 300);
+        }
+        graphics.strokePath();
+
+        graphics.fillStyle(0xf8fafc, 1);
+        [120, 500, 880].forEach(cx => {
+          for (let cy = 215; cy < 385; cy += 22) {
+            graphics.fillRect(cx - 20, cy, 40, 10);
+          }
+        });
+
+        const treePositions = [40, 210, 390, 580, 770, 950];
+        treePositions.forEach(tx => {
+          [125, 470].forEach(ty => {
+            this.add.image(tx, ty, 'tree_cypress').setDepth(2);
+          });
+        });
+      }
+
+      update(time, delta) {
+        if (!window.gameBridge.reactState || window.gameBridge.reactState.gameState !== 'PLAYING') return;
+
+        const player = this.player;
+        const state = window.gameBridge.reactState;
+
+        const totalWeight = state.inventory.reduce((acc, curr) => acc + curr.weight, 0);
+        const currentSpeed = Math.max(140, 260 - totalWeight * 30);
+
+        if (player.stunnedTimer > 0) {
+          player.stunnedTimer -= delta;
+          player.setVelocity(0, 0);
+        } else {
+          let vx = 0;
+          let vy = 0;
+
+          if (this.cursors.left.isDown || this.wasd.left.isDown || state.virtualKeys.left) vx -= 1;
+          if (this.cursors.right.isDown || this.wasd.right.isDown || state.virtualKeys.right) vx += 1;
+          if (this.cursors.up.isDown || this.wasd.up.isDown || state.virtualKeys.up) vy -= 1;
+          if (this.cursors.down.isDown || this.wasd.down.isDown || state.virtualKeys.down) vy += 1;
+
+          if (vx !== 0 && vy !== 0) {
+            vx *= 0.7071;
+            vy *= 0.7071;
+          }
+
+          player.setVelocity(vx * currentSpeed, vy * currentSpeed);
+        }
+
+        this.playerLabel.setPosition(player.x, player.y - 28);
+
+        this.aiCompetitors.getChildren().forEach(ai => {
+          if (!ai.targetHouse || !ai.targetHouse.currentRequest) {
+            ai.destroy();
+            return;
+          }
+          const dist = Phaser.Math.Distance.Between(ai.x, ai.y, ai.targetHouse.x, ai.targetHouse.y);
+          if (dist < 25) {
+            ai.targetHouse.currentRequest = null;
+            if (window.gameBridge.onAiDelivered) {
+              window.gameBridge.onAiDelivered(ai.name, ai.targetHouse.name);
+            }
+            ai.destroy();
+          } else {
+            this.physics.moveToObject(ai, ai.targetHouse, 130);
+          }
+        });
+
+        this.vehicles.getChildren().forEach(v => {
+          if (v.isObstacle) return;
+          if (v.x < -100 || v.x > 1100) v.destroy();
+        });
+
+        this.updateRequestOverlays(time);
+      }
+
+      updateRequestOverlays(time) {
+        if (this.overlayGraphics) this.overlayGraphics.destroy();
+        if (this.overlayImages) this.overlayImages.forEach(img => img.destroy());
+        if (this.overlayTexts) this.overlayTexts.forEach(t => t.destroy());
+
+        this.overlayGraphics = this.add.graphics().setDepth(10);
+        this.overlayImages = [];
+        this.overlayTexts = [];
+
+        const state = window.gameBridge.reactState;
+
+        // --- HOUSES WITH ACTIVE REQUESTS ---
+        this.housesData.forEach(h => {
+          if (h.currentRequest) {
+            const req = h.currentRequest;
+            const bubbleY = h.y - 12;
+            const hasItemInInv = state && state.inventory.some(i => i.id === req.item.id);
+
+            // Dynamic pulsating aura
+            const pulseScale = 1 + Math.sin(time * 0.008) * 0.16;
+            const auraRadius = 46 * pulseScale;
+            const auraColor = hasItemInInv ? 0x10b981 : (req.patience < 30 ? 0xef4444 : 0xfacc15);
+
+            this.overlayGraphics.lineStyle(4, auraColor, 0.85);
+            this.overlayGraphics.strokeCircle(h.x, h.y, auraRadius);
+            this.overlayGraphics.fillStyle(auraColor, 0.15);
+            this.overlayGraphics.fillCircle(h.x, h.y, auraRadius);
+
+            // White Request Bubble Background
+            this.overlayGraphics.fillStyle(0xffffff, 1);
+            this.overlayGraphics.fillCircle(h.x, bubbleY, 34);
+
+            const strokeColor = hasItemInInv ? 0x10b981 : (req.patience < 30 ? 0xef4444 : 0x0284c7);
+            this.overlayGraphics.lineStyle(hasItemInInv ? 6 : 4, strokeColor, 1);
+            this.overlayGraphics.strokeCircle(h.x, bubbleY, 34);
+
+            // Clean Vector SVG Image Sprite Texture inside Request Bubble
+            if (req.item && req.item.key) {
+              const itemImg = this.add.image(h.x, bubbleY, req.item.key).setDisplaySize(40, 40).setDepth(11);
+              this.overlayImages.push(itemImg);
+            }
+
+            // Gold Score Badge (+100pt)
+            this.overlayGraphics.fillStyle(0xfacc15, 1);
+            this.overlayGraphics.fillRoundedRect(h.x - 28, bubbleY - 50, 56, 18, 9);
+            this.overlayGraphics.lineStyle(1.5, 0x78350f, 1);
+            this.overlayGraphics.strokeRoundedRect(h.x - 28, bubbleY - 50, 56, 18, 9);
+
+            const scoreTxt = this.add.text(h.x, bubbleY - 41, `+${req.item.points}pt`, {
+              fontFamily: 'Rubik', fontSize: '11px', fontWeight: '900', color: '#0f172a'
+            }).setOrigin(0.5).setDepth(11);
+            this.overlayTexts.push(scoreTxt);
+
+            if (hasItemInInv) {
+              const holdTxt = this.add.text(h.x, bubbleY + 44, '👇 יש בבית!', {
+                fontFamily: 'Rubik', fontSize: '12px', fontWeight: '900', color: '#10b981', stroke: '#000000', strokeThickness: 3
+              }).setOrigin(0.5).setDepth(11);
+              this.overlayTexts.push(holdTxt);
+            }
+
+            // Patience Bar
+            this.overlayGraphics.fillStyle(0x1e293b, 1);
+            this.overlayGraphics.fillRect(h.x - 26, bubbleY + 35, 52, 5);
+            this.overlayGraphics.fillStyle(req.patience < 30 ? 0xef4444 : 0x10b981, 1);
+            this.overlayGraphics.fillRect(h.x - 26, bubbleY + 35, (req.patience / 100) * 52, 5);
+          }
+        });
+      }
+
+      handleVehicleHit(player, vehicle) {
+        if (player.stunnedTimer > 0) return;
+        sound.playHit();
+
+        player.stunnedTimer = 1200;
+        this.cameras.main.shake(300, 0.015);
+
+        if (window.gameBridge.onHitVehicle) {
+          window.gameBridge.onHitVehicle(vehicle.type, vehicle.isObstacle);
+        }
+
+        if (vehicle.isObstacle) {
+          vehicle.body.enable = false;
+          vehicle.destroy();
+        } else {
+          vehicle.destroy();
+        }
+      }
+
+      handleItemPickup(player, itemSprite) {
+        if (itemSprite.processingPickup) return;
+        itemSprite.processingPickup = true;
+        if (itemSprite.body) itemSprite.body.enable = false;
+
+        if (window.gameBridge.onPickupGroundItem) {
+          const success = window.gameBridge.onPickupGroundItem(itemSprite.itemData);
+          if (success) {
+            sound.playPickup();
+            itemSprite.destroy();
+          } else {
+            itemSprite.processingPickup = false;
+            if (itemSprite.body) itemSprite.body.enable = true;
+          }
+        }
+      }
+
+      spawnVehicle() {
+        const types = [
+          { name: 'קלנועית 🛺', speed: 180, sprite: 'cart_kibbutz' },
+          { name: 'ילד על קורקינט 🛴👦', speed: 280, sprite: 'scooter_kid' },
+          { name: 'טרקטור 🚜', speed: 110, sprite: 'tractor' },
+          { name: 'פרה שברחה מהרפת 🐄', speed: 80, sprite: 'cow' },
+          { name: 'במבה על הכביש 🍿', speed: 0, sprite: 'bamba', isObstacle: true }
+        ];
+
+        const selected = Phaser.Math.RND.pick(types);
+        const dir = Math.random() > 0.5 ? 1 : -1;
+        const spawnX = selected.isObstacle ? Phaser.Math.Between(180, 820) : (dir === 1 ? -60 : 1060);
+        const spawnY = selected.isObstacle ? Phaser.Math.Between(220, 370) : Phaser.Math.Between(240, 360);
+
+        const v = this.vehicles.create(spawnX, spawnY, selected.sprite);
+        v.type = selected.name;
+        v.isObstacle = selected.isObstacle;
+
+        if (!selected.isObstacle) {
+          v.setVelocityX(selected.speed * dir);
+        }
+      }
+
+      spawnAiCompetitor(targetHouse, item) {
+        const eligibleSources = this.housesData.filter(h => h.id !== targetHouse.id && !h.isPlayerHome);
+        const source = Phaser.Math.RND.pick(eligibleSources);
+        const neighborNames = ['שמעון', 'רונית', 'אבנר', 'תמר', 'גדי', 'ענת', 'יוסי', 'מיכל'];
+        const neighborSprites = ['ai_neighbor', 'ai_female_1', 'ai_male_2', 'ai_female_2'];
+
+        const spriteKey = Phaser.Math.RND.pick(neighborSprites);
+        const ai = this.aiCompetitors.create(source.x, source.y, spriteKey);
+        ai.targetHouse = targetHouse;
+        ai.name = Phaser.Math.RND.pick(neighborNames);
+
+        this.add.text(ai.x, ai.y - 20, `${ai.name} (${item.name})`, {
+          fontFamily: 'Rubik', fontSize: '11px', fontWeight: 'bold', color: '#ef4444', stroke: '#000', strokeThickness: 2
+        }).setOrigin(0.5);
+      }
+
+      dropItemOnGround(item, x, y) {
+        const itemSprite = this.groundItemsGroup.create(x, y, item.key || 'milk');
+        itemSprite.itemData = item;
+      }
+
+      handleAction() {
+        if (!this.player || !window.gameBridge.reactState || window.gameBridge.reactState.gameState !== 'PLAYING') return;
+
+        const player = this.player;
+        this.housesGroup.getChildren().forEach(houseSprite => {
+          const house = houseSprite.houseData;
+          const dist = Phaser.Math.Distance.Between(player.x, player.y, house.x, house.y);
+          if (dist < 65) {
+            if (house.isToledo) {
+              if (window.gameBridge.onOpenToledo) window.gameBridge.onOpenToledo();
+            } else if (house.isPlayerHome) {
+              if (window.gameBridge.onRestockHome) window.gameBridge.onRestockHome();
+            } else if (house.currentRequest) {
+              if (window.gameBridge.onFulfillRequest) window.gameBridge.onFulfillRequest(house);
+            }
+          }
+        });
+      }
+    }
+
+    // ==========================================
+    // 5. REACT UI OVERLAY COMPONENT
+    // ==========================================
+    function CypressStreetApp() {
+      const [gameState, setGameState] = useState('START');
       const [score, setScore] = useState(0);
       const [favors, setFavors] = useState(1);
-      const [timeLeft, setTimeLeft] = useState(180); // 3 דקות משחק
+      const [combo, setCombo] = useState(1);
+      const [timeLeft, setTimeLeft] = useState(180);
       const [inventory, setInventory] = useState([]);
-      const [notification, setNotification] = useState('ברוכים הבאים לרחוב הברוש!');
-      
-      // טולדו Modal
+      const [cornerToast, setCornerToast] = useState(null); // Corner Toast Notifications
+      const [isMuted, setIsMuted] = useState(false);
+      const [isPortrait, setIsPortrait] = useState(window.innerHeight > window.innerWidth);
+      const [virtualKeys, setVirtualKeys] = useState({ up: false, down: false, left: false, right: false });
+
       const [toledoChatTimer, setToledoChatTimer] = useState(0);
       const [canPickToledoItem, setCanPickToledoItem] = useState(false);
 
-      const canvasRef = useRef(null);
+      const phaserContainerRef = useRef(null);
 
-      // Refs עבור לוגיקת המשחק בזמן אמת (60 FPS)
-      const stateRef = useRef({
-        player: { x: 150, y: 440, vx: 0, vy: 0, speed: 3.8, stunned: 0 },
-        houses: JSON.parse(JSON.stringify(INITIAL_HOUSES)),
-        aiCompetitors: [],
-        vehicles: [],
-        groundItems: [],
-        keys: {},
-        inventory: []
-      });
+      const triggerToast = (text, icon = '⚠️') => {
+        setCornerToast({ text, icon, id: Date.now() });
+        setTimeout(() => {
+          setCornerToast(prev => (prev && prev.id === cornerToast?.id ? null : prev));
+        }, 3200);
+      };
 
-      // סנכרון inventory ל-ref
       useEffect(() => {
-        stateRef.current.inventory = inventory;
-      }, [inventory]);
+        window.gameBridge.reactState = {
+          gameState, inventory, favors, score, combo, virtualKeys
+        };
+      }, [gameState, inventory, favors, score, combo, virtualKeys]);
 
-      // --- התחלת משחק ---
-      const startGame = () => {
-        setScore(0);
-        setFavors(1);
-        setTimeLeft(180);
-        setInventory([]);
-        setGameState('PLAYING');
-        stateRef.current.player = { x: 150, y: 440, vx: 0, vy: 0, speed: 3.8, stunned: 0 };
-        stateRef.current.houses = JSON.parse(JSON.stringify(INITIAL_HOUSES));
-        stateRef.current.aiCompetitors = [];
-        stateRef.current.vehicles = [];
-        stateRef.current.groundItems = [];
-        showNotification('המשחק החל! אוספים חפצים ועוזרים לשכנים.');
-      };
+      useEffect(() => {
+        const config = {
+          type: Phaser.AUTO,
+          parent: phaserContainerRef.current,
+          width: '100%',
+          height: '100%',
+          scale: {
+            mode: Phaser.Scale.RESIZE,
+            autoCenter: Phaser.Scale.CENTER_BOTH
+          },
+          physics: {
+            default: 'arcade',
+            arcade: { gravity: { y: 0 }, debug: false }
+          },
+          scene: [MainScene]
+        };
 
-      const showNotification = (msg) => {
-        setNotification(msg);
-      };
+        const game = new Phaser.Game(config);
 
-      // --- ניהול זמן משחק ---
+        const handleResize = () => setIsPortrait(window.innerHeight > window.innerWidth);
+        window.addEventListener('resize', handleResize);
+
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          game.destroy(true);
+        };
+      }, []);
+
+      useEffect(() => {
+        window.gameBridge.onOpenToledo = () => {
+          setGameState('TOLEDO');
+          setToledoChatTimer(3);
+          setCanPickToledoItem(false);
+
+          const timer = setInterval(() => {
+            setToledoChatTimer(prev => {
+              if (prev <= 1) {
+                clearInterval(timer);
+                setCanPickToledoItem(true);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        };
+
+        window.gameBridge.onRestockHome = () => {
+          setInventory(prev => {
+            if (prev.length >= 3) {
+              triggerToast('הבית שלך מלא (3/3 חפצים)! לחץ ✕ ליד חפץ בתחתית כדי לפנות מקום.', '🏠');
+              return prev;
+            }
+            sound.playPickup();
+            const basic = [ITEMS.milk, ITEMS.eggs, ITEMS.screwdriver];
+            const added = basic[Math.floor(Math.random() * basic.length)];
+            triggerToast(`לקחת מהמזווה בבית: ${added.name}`, '📦');
+            return [...prev, added];
+          });
+        };
+
+        window.gameBridge.onFulfillRequest = (house) => {
+          const reqItem = house.currentRequest.item;
+          setInventory(prevInv => {
+            const itemIdx = prevInv.findIndex(i => i.id === reqItem.id);
+            if (itemIdx !== -1) {
+              sound.playDeliverSuccess();
+              const newInv = [...prevInv];
+              newInv.splice(itemIdx, 1);
+
+              const gainedPoints = reqItem.points * combo;
+              setScore(s => s + gainedPoints);
+              setFavors(f => f + 1);
+              setCombo(c => Math.min(c + 1, 4));
+
+              house.currentRequest = null;
+
+              const gifts = [ITEMS.drill, ITEMS.seinfeld, ITEMS.sourdough, ITEMS.flamingo, ITEMS.pokemon];
+              const gift = gifts[Math.floor(Math.random() * gifts.length)];
+              triggerToast(`✨ מעולה! הבאת ל-${house.name} את ה-${reqItem.name}! קיבלת מתנה!`, '🎁');
+
+              if (newInv.length < 3) return [...newInv, gift];
+              return newInv;
+            } else {
+              if (prevInv.length === 0) {
+                triggerToast(`💡 הבית שלך ריק! קפוץ לבית 1 (שלך) או לאחוזת טולדו 👑 להביא ${reqItem.name}!`, '👑');
+              } else {
+                triggerToast(`💡 חסר לך ${reqItem.name}! (יש לך: ${prevInv.map(i => i.name).join(', ')}). קפוץ לאחוזת טולדו 👑 בצד שמאל להשיג אותו!`, '👑');
+              }
+              return prevInv;
+            }
+          });
+        };
+
+        window.gameBridge.onHitVehicle = (name, isObstacle) => {
+          triggerToast(isObstacle ? `🍌 החלקת על ${name}!` : `💥 נתקלת ב-${name}! החפצים עפו לרצפה.`, '⚠️');
+          if (!isObstacle) {
+            setInventory(prev => {
+              const scene = window.gameBridge.phaserScene;
+              if (scene && scene.player) {
+                prev.forEach(item => scene.dropItemOnGround(item, scene.player.x, scene.player.y));
+              }
+              return [];
+            });
+          }
+        };
+
+        window.gameBridge.onPickupGroundItem = (item) => {
+          let success = false;
+          setInventory(prev => {
+            if (prev.length < 3) {
+              success = true;
+              triggerToast(`רמת מהרצפה: ${item.name}`, '📦');
+              return [...prev, item];
+            } else {
+              triggerToast('הבית שלך מלא!', '🏠');
+              return prev;
+            }
+          });
+          return success;
+        };
+
+        window.gameBridge.onAiDelivered = (aiName, houseName) => {
+          setCombo(1);
+          triggerToast(`😱 ${aiName} השכן הקדים אותך והביא ל-${houseName} את המבוקש!`, '🏃‍♂️');
+        };
+      }, [combo]);
+
       useEffect(() => {
         if (gameState !== 'PLAYING') return;
         const timer = setInterval(() => {
           setTimeLeft(prev => {
             if (prev <= 1) {
+              sound.stopBGM();
               setGameState('GAME_OVER');
               return 0;
             }
@@ -130,588 +943,325 @@
         return () => clearInterval(timer);
       }, [gameState]);
 
-      // --- מחולל בקשות שכנים אקראי ---
       useEffect(() => {
         if (gameState !== 'PLAYING') return;
 
-        const requestInterval = setInterval(() => {
-          const houses = stateRef.current.houses;
-          // בחירת בית אקראי שאין לו כרגע בקשה פעילה
-          const eligible = houses.filter(h => !h.isPlayerHome && !h.isToledo && !h.currentRequest);
+        const reqInterval = setInterval(() => {
+          const scene = window.gameBridge.phaserScene;
+          if (!scene) return;
+
+          const eligible = scene.housesData.filter(h => !h.isPlayerHome && !h.isToledo && !h.currentRequest);
           if (eligible.length === 0) return;
 
           const targetHouse = eligible[Math.floor(Math.random() * eligible.length)];
           const itemKeys = Object.keys(ITEMS);
-          const randomItemKey = itemKeys[Math.floor(Math.random() * itemKeys.length)];
-          const item = ITEMS[randomItemKey];
+          const item = ITEMS[itemKeys[Math.floor(Math.random() * itemKeys.length)]];
 
-          targetHouse.currentRequest = {
-            item,
-            patience: 100, // אחוזים
-            duration: 22,  // שניות עד שנמאס לשכן
-            aiDispatched: false
-          };
+          targetHouse.currentRequest = { item, patience: 100, duration: 20, aiDispatched: false };
+          sound.playNewRequest(); // Audio chime for new request
+        }, 4500);
 
-          showNotification(`💡 ${targetHouse.name} צריך/ה ${item.icon} ${item.name}!`);
-        }, 6000);
+        const vehicleInterval = setInterval(() => {
+          const scene = window.gameBridge.phaserScene;
+          if (scene) scene.spawnVehicle();
+        }, 4000);
 
-        return () => clearInterval(requestInterval);
-      }, [gameState]);
-
-      // --- מקלדת (מקשים) ---
-      useEffect(() => {
-        const handleKeyDown = (e) => {
-          stateRef.current.keys[e.key] = true;
-          if (e.key === ' ' || e.key === 'e' || e.key === 'E') {
-            handleInteraction();
-          }
-        };
-        const handleKeyUp = (e) => { stateRef.current.keys[e.key] = false; };
-
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        return () => {
-          window.removeEventListener('keydown', handleKeyDown);
-          window.removeEventListener('keyup', handleKeyUp);
-        };
-      }, [inventory, favors]);
-
-      // --- אינטראקציה של השחקן (מקש רווח / הגעה לבית) ---
-      const handleInteraction = () => {
-        if (gameState !== 'PLAYING') return;
-        const player = stateRef.current.player;
-        const houses = stateRef.current.houses;
-
-        houses.forEach(house => {
-          const dist = Math.hypot(player.x - house.x, player.y - house.y);
-          if (dist < 60) {
-            // 1. אחוזת טולדו
-            if (house.isToledo) {
-              openToledoModal();
-              return;
+        const aiCheckInterval = setInterval(() => {
+          const scene = window.gameBridge.phaserScene;
+          if (!scene) return;
+          scene.housesData.forEach(h => {
+            if (h.currentRequest && h.currentRequest.patience < 75 && !h.currentRequest.aiDispatched) {
+              h.currentRequest.aiDispatched = true;
+              scene.spawnAiCompetitor(h, h.currentRequest.item);
             }
-
-            // 2. הבית של השחקן (מילוי מחדש)
-            if (house.isPlayerHome) {
-              restockAtHome();
-              return;
+            if (h.currentRequest) {
+              h.currentRequest.patience -= 5;
+              if (h.currentRequest.patience <= 0) {
+                h.currentRequest = null;
+                setCombo(1);
+                triggerToast(`❌ הבקשה מ-${h.name} פגה!`, '⏰');
+              }
             }
-
-            // 3. אספקת בקשה לשכן
-            if (house.currentRequest) {
-              fulfillRequest(house);
-            }
-          }
-        });
-      };
-
-      // מילוי במזווה הביתי
-      const restockAtHome = () => {
-        if (inventory.length >= 2) {
-          showNotification('התיק שלך מלא! פנה מקום ראשית.');
-          return;
-        }
-        const basicItems = [ITEMS.milk, ITEMS.eggs, ITEMS.screwdriver];
-        const added = basicItems[Math.floor(Math.random() * basicItems.length)];
-        setInventory(prev => [...prev, added]);
-        showNotification(`לקחת מהמזווה הביתי: ${added.icon} ${added.name}`);
-      };
-
-      // מילוי בקשה
-      const fulfillRequest = (house) => {
-        const reqItem = house.currentRequest.item;
-        const itemIndex = inventory.findIndex(i => i.id === reqItem.id);
-
-        if (itemIndex !== -1) {
-          // הצלחה!
-          const newInv = [...inventory];
-          newInv.splice(itemIndex, 1);
-          setInventory(newInv);
-
-          const gainedScore = reqItem.points;
-          setScore(s => s + gainedScore);
-          setFavors(f => f + 1);
-
-          // מתנה אקראית מהשכן!
-          const gifts = [ITEMS.drill, ITEMS.seinfeld, ITEMS.sourdough, ITEMS.flamingo];
-          const gift = gifts[Math.floor(Math.random() * gifts.length)];
-          
-          house.currentRequest = null;
-          showNotification(`✨ הבאת ל-${house.name} את ה-${reqItem.name}! (+${gainedScore} נק'). השכן הביא לך במתנה: ${gift.icon}`);
-
-          // ניסיון להוסיף מתנה אם יש מקום
-          if (newInv.length < 2) {
-            setInventory([...newInv, gift]);
-          }
-        } else {
-          showNotification(`❌ ל-${house.name} דרוש/ה ${reqItem.icon} ${reqItem.name}. אין לך את זה בתיק!`);
-        }
-      };
-
-      // --- אחוזת טולדו ---
-      const openToledoModal = () => {
-        setGameState('TOLEDO');
-        setToledoChatTimer(3);
-        setCanPickToledoItem(false);
-
-        const countdown = setInterval(() => {
-          setToledoChatTimer(prev => {
-            if (prev <= 1) {
-              clearInterval(countdown);
-              setCanPickToledoItem(true);
-              return 0;
-            }
-            return prev - 1;
           });
         }, 1000);
+
+        return () => {
+          clearInterval(reqInterval);
+          clearInterval(vehicleInterval);
+          clearInterval(aiCheckInterval);
+        };
+      }, [gameState]);
+
+      const startGame = () => {
+        sound.init();
+        sound.startBGM();
+
+        const keys = Object.keys(ITEMS);
+        const item1 = ITEMS[keys[Math.floor(Math.random() * keys.length)]];
+        let item2 = ITEMS[keys[Math.floor(Math.random() * keys.length)]];
+        while (item2.id === item1.id) item2 = ITEMS[keys[Math.floor(Math.random() * keys.length)]];
+
+        const initialInv = [item1, item2];
+        setInventory(initialInv);
+        setScore(0);
+        setFavors(1);
+        setCombo(1);
+        setTimeLeft(180);
+        setGameState('PLAYING');
+
+        setTimeout(() => {
+          const scene = window.gameBridge.phaserScene;
+          if (!scene) return;
+          const eligible = scene.housesData.filter(h => !h.isPlayerHome && !h.isToledo);
+          const target = eligible[Math.floor(Math.random() * eligible.length)];
+          const matchItem = Math.random() > 0.5 ? item1 : item2;
+
+          target.currentRequest = { item: matchItem, patience: 100, duration: 25, aiDispatched: false };
+          sound.playNewRequest();
+          triggerToast(`🚀 התחלה מהירה! ל-${target.name} דרוש ${matchItem.name} - יש בבית!`, '🌟');
+        }, 600);
+      };
+
+      const toggleSound = () => {
+        sound.muted = !sound.muted;
+        setIsMuted(sound.muted);
       };
 
       const pickToledoItem = (item) => {
-        if (inventory.length >= 2) {
-          alert('התיק שלך מלא!');
+        sound.playPickup();
+        if (inventory.length >= 3) {
+          alert('הבית שלך מלא! (מקסימום 3 חפצים)');
           return;
         }
         setInventory(prev => [...prev, item]);
         setGameState('PLAYING');
-        showNotification(`לקחת מטולדו: ${item.icon} ${item.name}!`);
+        triggerToast(`לקחת מטולדו: ${item.name}!`, '👑');
       };
 
       const skipToledoTalkWithFavor = () => {
         if (favors < 1) return;
+        sound.playClick();
         setFavors(f => f - 1);
         setCanPickToledoItem(true);
         setToledoChatTimer(0);
       };
 
-      // --- זריקת חפץ על הרצפה ---
-      const dropItem = (index) => {
-        if (index >= inventory.length) return;
-        const itemToDrop = inventory[index];
+      const dropItem = (idx) => {
+        if (idx >= inventory.length) return;
+        sound.playClick();
+        const itemToDrop = inventory[idx];
         const newInv = [...inventory];
-        newInv.splice(index, 1);
+        newInv.splice(idx, 1);
         setInventory(newInv);
 
-        stateRef.current.groundItems.push({
-          id: Date.now(),
-          item: itemToDrop,
-          x: stateRef.current.player.x,
-          y: stateRef.current.player.y
-        });
-        showNotification(`הפלת ${itemToDrop.name} על המדרכה.`);
+        const scene = window.gameBridge.phaserScene;
+        if (scene && scene.player) {
+          scene.dropItemOnGround(itemToDrop, scene.player.x, scene.player.y);
+        }
+        triggerToast(`הפלת ${itemToDrop.name} על המדרכה.`, '📦');
       };
 
-      // --- מנוע ה-GAME LOOP (Canvas Rendering + Physics) ---
-      useEffect(() => {
-        let animationFrameId;
-
-        const loop = () => {
-          if (gameState === 'PLAYING') {
-            updatePhysics();
-          }
-          renderCanvas();
-          animationFrameId = requestAnimationFrame(loop);
-        };
-
-        animationFrameId = requestAnimationFrame(loop);
-        return () => cancelAnimationFrame(animationFrameId);
-      }, [gameState, inventory]);
-
-      // עדכון פיזיקה ודינמיקה
-      const updatePhysics = () => {
-        const state = stateRef.current;
-        const player = state.player;
-        const keys = state.keys;
-
-        // 1. הליכת שחקן
-        let totalWeight = state.inventory.reduce((acc, curr) => acc + curr.weight, 0);
-        let currentSpeed = Math.max(1.8, player.speed - (totalWeight * 0.6));
-
-        if (player.stunned > 0) {
-          player.stunned -= 1;
-        } else {
-          let dx = 0, dy = 0;
-          if (keys['ArrowLeft'] || keys['a'] || keys['A']) dx -= 1;
-          if (keys['ArrowRight'] || keys['d'] || keys['D']) dx += 1;
-          if (keys['ArrowUp'] || keys['w'] || keys['W']) dy -= 1;
-          if (keys['ArrowDown'] || keys['s'] || keys['S']) dy += 1;
-
-          if (dx !== 0 && dy !== 0) {
-            dx *= 0.7071;
-            dy *= 0.7071;
-          }
-
-          player.x = Math.max(40, Math.min(960, player.x + dx * currentSpeed));
-          player.y = Math.max(40, Math.min(560, player.y + dy * currentSpeed));
-        }
-
-        // 2. עדכון סבלנות של בקשות שכנים + שיגור AI
-        state.houses.forEach(house => {
-          if (house.currentRequest) {
-            const req = house.currentRequest;
-            req.patience -= (100 / (req.duration * 60)); // ירידה בפריים
-
-            // שיגור AI מתחרה כשהסבלנות יורדת מתחת ל-80%
-            if (req.patience < 80 && !req.aiDispatched) {
-              req.aiDispatched = true;
-              // מציאת בית שכן קרוב שישמש כנקודת יציאה ל-AI
-              const sourceHouse = state.houses.find(h => h.id !== house.id && !h.isPlayerHome && !h.isToledo) || state.houses[0];
-              state.aiCompetitors.push({
-                id: Date.now(),
-                name: 'שמעון השכן',
-                x: sourceHouse.x,
-                y: sourceHouse.y,
-                targetHouse: house,
-                item: req.item,
-                speed: 1.9
-              });
-            }
-
-            // פקיעת זמן הבקשה
-            if (req.patience <= 0) {
-              house.currentRequest = null;
-              showNotification(`❌ השכן מ-${house.name} התעצבן וביטל את הבקשה!`);
-            }
-          }
-        });
-
-        // 3. תנועת AI מתחרה
-        state.aiCompetitors.forEach((ai, idx) => {
-          const target = ai.targetHouse;
-          const dist = Math.hypot(target.x - ai.x, target.y - ai.y);
-
-          if (dist < 25) {
-            // ה-AI הגיע ראשון!
-            if (target.currentRequest) {
-              target.currentRequest = null;
-              showNotification(`😱 שמעון השכן הקדים אותך והביא ל-${target.name} את מה שביקש!`);
-            }
-            state.aiCompetitors.splice(idx, 1);
-          } else {
-            const angle = Math.atan2(target.y - ai.y, target.x - ai.x);
-            ai.x += Math.cos(angle) * ai.speed;
-            ai.y += Math.sin(angle) * ai.speed;
-          }
-        });
-
-        // 4. ייצור ותנועת כלי רכב בכביש (כביש בערכים Y: 240 עד 360)
-        if (Math.random() < 0.015 && state.vehicles.length < 3) {
-          const dir = Math.random() > 0.5 ? 1 : -1;
-          state.vehicles.push({
-            id: Date.now(),
-            x: dir === 1 ? -50 : 1050,
-            y: 270 + Math.random() * 60,
-            speed: (2.5 + Math.random() * 2) * dir,
-            type: Math.random() > 0.5 ? 'קלנועית 🛵' : 'טרקטור 🚜'
-          });
-        }
-
-        state.vehicles.forEach((v, idx) => {
-          v.x += v.speed;
-          // התנגשות עם שחקן בכביש
-          const pDist = Math.hypot(player.x - v.x, player.y - v.y);
-          if (pDist < 28 && player.stunned === 0) {
-            player.stunned = 90; // הלוצינציה/הלם של 1.5 שניות
-            showNotification(`💥 כמעט חטפת מ-${v.type}! החפצים נפלו לרצפה.`);
-            // הפלת חפצים
-            state.inventory.forEach(item => {
-              state.groundItems.push({ id: Date.now() + Math.random(), item, x: player.x, y: player.y });
-            });
-            setInventory([]);
-          }
-
-          if (v.x < -100 || v.x > 1100) {
-            state.vehicles.splice(idx, 1);
-          }
-        });
-
-        // 5. איסוף חפצים מהרצפה
-        state.groundItems.forEach((gItem, idx) => {
-          const dist = Math.hypot(player.x - gItem.x, player.y - gItem.y);
-          if (dist < 30 && state.inventory.length < 2) {
-            setInventory(prev => [...prev, gItem.item]);
-            state.groundItems.splice(idx, 1);
-            showNotification(`רמת מהרצפה: ${gItem.item.icon} ${gItem.item.name}`);
-          }
-        });
-      };
-
-      // --- ציור המפה ב-CANVAS ---
-      const renderCanvas = () => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const state = stateRef.current;
-
-        // רקע דשא קיבוצי
-        ctx.fillStyle = '#1e3a1e';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // מדרכות (צפון ודרום)
-        ctx.fillStyle = '#94a3b8';
-        ctx.fillRect(0, 160, canvas.width, 50);
-        ctx.fillRect(0, 390, canvas.width, 50);
-
-        // כביש מרכזי
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(0, 210, canvas.width, 180);
-
-        // קו קווקוו צהוב בכביש
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 4;
-        ctx.setLineDash([20, 15]);
-        ctx.beginPath();
-        ctx.moveTo(0, 300);
-        ctx.lineTo(canvas.width, 300);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // ציור בתים
-        state.houses.forEach(house => {
-          // גוף הבית
-          if (house.isToledo) {
-            ctx.fillStyle = '#f59e0b'; // זהב לאחוזת טולדו
-          } else if (house.isPlayerHome) {
-            ctx.fillStyle = '#3b82f6'; // כחול לבית השחקן
-          } else {
-            ctx.fillStyle = '#e2e8f0';
-          }
-
-          const width = house.isToledo ? 110 : 80;
-          const height = 70;
-          const hX = house.x - width / 2;
-          const hY = house.y - height / 2;
-
-          ctx.fillRect(hX, hY, width, height);
-          ctx.strokeStyle = '#0f172a';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(hX, hY, width, height);
-
-          // כותרת הבית
-          ctx.fillStyle = house.isToledo ? '#fef08a' : '#ffffff';
-          ctx.font = 'bold 12px Rubik';
-          ctx.textAlign = 'center';
-          ctx.fillText(house.name, house.x, house.y + (house.side === 'N' ? -45 : 55));
-
-          // בועת בקשה במידה ויש
-          if (house.currentRequest) {
-            const req = house.currentRequest;
-            const bubbleY = house.y + 10;
-
-            // עיגול בועה
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(house.x, bubbleY, 22, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = req.patience < 30 ? '#ef4444' : '#10b981';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-
-            // אייקון חפץ
-            ctx.font = '18px Rubik';
-            ctx.fillText(req.item.icon, house.x, bubbleY + 6);
-
-            // סרגל סבלנות קטן
-            ctx.fillStyle = '#e2e8f0';
-            ctx.fillRect(house.x - 20, bubbleY - 30, 40, 6);
-            ctx.fillStyle = req.patience < 30 ? '#ef4444' : '#10b981';
-            ctx.fillRect(house.x - 20, bubbleY - 30, (req.patience / 100) * 40, 6);
-          }
-        });
-
-        // ציור חפצים מופלים על הרצפה
-        state.groundItems.forEach(g => {
-          ctx.font = '20px Rubik';
-          ctx.fillText(g.item.icon, g.x, g.y);
-        });
-
-        // ציור AI מתחרה
-        state.aiCompetitors.forEach(ai => {
-          ctx.fillStyle = '#ef4444'; // אדום למתחרים
-          ctx.beginPath();
-          ctx.arc(ai.x, ai.y, 14, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.font = '12px Rubik';
-          ctx.fillText(ai.item.icon, ai.x, ai.y - 18);
-        });
-
-        // ציור כלי רכב בכביש
-        state.vehicles.forEach(v => {
-          ctx.font = '26px Rubik';
-          ctx.fillText(v.type.includes('טרקטור') ? '🚜' : '🛵', v.x, v.y);
-        });
-
-        // ציור שחקן
-        const p = state.player;
-        ctx.fillStyle = p.stunned > 0 ? '#ef4444' : '#10b981'; // ירוק לשחקן
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 12px Rubik';
-        ctx.fillText('אתה', p.x, p.y - 22);
-
-        // ציור חפצים שהשחקן נושא מעל הראש
-        if (state.inventory.length > 0) {
-          const invIcons = state.inventory.map(i => i.icon).join(' ');
-          ctx.font = '14px Rubik';
-          ctx.fillText(invIcons, p.x, p.y + 32);
-        }
+      const setTouchKey = (key, active) => {
+        setVirtualKeys(prev => ({ ...prev, [key]: active }));
       };
 
       return (
-        <div class="flex flex-col items-center bg-slate-800 rounded-xl p-4 shadow-2xl border border-slate-700">
+        <div class="h-full w-full relative bg-slate-950 overflow-hidden flex flex-col justify-between">
           
-          {/* סרגל עליון - HUD */}
-          <div class="w-full flex justify-between items-center bg-slate-900 p-3 rounded-lg mb-3 border border-slate-700 text-sm md:text-base">
-            <div class="flex items-center gap-4">
-              <span class="font-bold text-yellow-400">🏆 ניקוד: {score}</span>
-              <span class="font-bold text-purple-400">⭐ טובות טולדו: {favors}</span>
+          {/* Orientation Warning */}
+          {isPortrait && (
+            <div class="absolute inset-0 bg-slate-950/98 z-50 flex flex-col items-center justify-center p-6 text-center">
+              <div class="text-6xl mb-4 animate-bounce">📱🔄</div>
+              <h2 class="text-2xl font-black text-yellow-400 mb-2">סובב את המכשיר למצב אופקי</h2>
+              <p class="text-slate-300 text-sm max-w-xs">
+                רחוב הברוש מתוכנן למצב אופקי (Landscape) לתצוגת רחוב מלאה!
+              </p>
             </div>
-            <div class="font-mono text-xl text-emerald-400 font-extrabold">
+          )}
+
+          {/* 1. TOP FLOATING HUD OVERLAY */}
+          <header class="absolute top-0 left-0 right-0 z-20 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/60 px-4 py-2 shadow-lg flex justify-between items-center h-11 text-xs sm:text-sm">
+            <div class="flex items-center gap-4">
+              <span class="font-black text-yellow-400">🏆 {score}pt</span>
+              <span class="font-bold text-purple-400">⭐ {favors}</span>
+              {combo > 1 && <span class="font-black text-pink-500 animate-pulse">x{combo} Combo!</span>}
+            </div>
+            
+            <div class="font-mono text-lg sm:text-2xl text-emerald-400 font-black">
               ⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
             </div>
-            <button 
-              onClick={() => setGameState(gameState === 'PLAYING' ? 'START' : 'PLAYING')}
-              class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-xs font-bold">
-              {gameState === 'PLAYING' ? 'השהה' : 'חזור'}
-            </button>
-          </div>
 
-          {/* הודעת מערכת דינמית */}
-          <div class="w-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-center py-1.5 px-3 rounded-lg mb-3 font-medium text-sm animate-pulse">
-            {notification}
-          </div>
-
-          {/* זירת המשחק Canvas */}
-          <div class="relative rounded-lg overflow-hidden border-2 border-slate-600 shadow-inner">
-            <canvas 
-              ref={canvasRef} 
-              width={1000} 
-              height={600} 
-              class="w-full max-w-[1000px] h-auto block"
-            />
-
-            {/* מסך פתיחה */}
-            {gameState === 'START' && (
-              <div class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
-                <h1 class="text-4xl font-black text-emerald-400 mb-2">רחוב הברוש 🌳</h1>
-                <p class="text-slate-300 max-w-md mb-6 leading-relaxed">
-                  עזרו לשכנים בקיבוץ דפנה להשיג את החפצים שהם צריכים לפני ששמעון השכן יקדים אתכם!
-                </p>
-                <div class="bg-slate-900 p-4 rounded-lg mb-6 text-right text-xs text-slate-300 space-y-1 border border-slate-800">
-                  <p>🎮 <b>מקשים:</b> חצים / WASD לתנועה ברחוב.</p>
-                  <p>🖐️ <b>אינטראקציה:</b> מקש רווח (Space) ליד בית כדי לעזור/לקחת.</p>
-                  <p>👑 <b>משפחת טולדו:</b> מחזיקים את כל החפצים בעולם, אך דורשים שיחת חולין סבלנית!</p>
-                </div>
-                <button 
-                  onClick={startGame}
-                  class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl px-8 py-3 rounded-full shadow-lg transition transform hover:scale-105">
-                  התחל למשחק! 🚀
-                </button>
-              </div>
-            )}
-
-            {/* מסך סיום משחק */}
-            {gameState === 'GAME_OVER' && (
-              <div class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center">
-                <h2 class="text-3xl font-black text-yellow-400 mb-2">הזמן הסתיים! ⏰</h2>
-                <p class="text-xl text-slate-200 mb-4">השגת בסך הכל: <span class="font-bold text-emerald-400">{score}</span> נקודות!</p>
-                <button 
-                  onClick={startGame}
-                  class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-lg px-6 py-2.5 rounded-full shadow-lg">
-                  שחק שוב 🔄
-                </button>
-              </div>
-            )}
-
-            {/* דיאלוג אחוזת טולדו Modal */}
-            {gameState === 'TOLEDO' && (
-              <div class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
-                <div class="bg-slate-900 border-2 border-yellow-500 p-6 rounded-xl max-w-lg w-full shadow-2xl">
-                  <h2 class="text-2xl font-black text-yellow-400 mb-1">👑 אחוזת משפחת טולדו</h2>
-                  <p class="text-xs text-slate-400 mb-4">מלכי רחוב הברוש - יש להם הכל במחסן!</p>
-
-                  {!canPickToledoItem ? (
-                    <div class="py-6 space-y-4">
-                      <p class="text-slate-200 text-sm animate-pulse">
-                        ☕ טולדו מציע לך קפה, מראה תמונות מ-1982 ומספר על הימים הראשונים בדפנה...
-                      </p>
-                      <div class="text-3xl font-bold text-yellow-500 font-mono">
-                        00:0{toledoChatTimer}
-                      </div>
-                      {favors > 0 && (
-                        <button 
-                          onClick={skipToledoTalkWithFavor}
-                          class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-4 py-2 rounded-lg font-bold">
-                          תשלם 1 ⭐ טובה כדי לדלג על השיחה
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <p class="text-slate-300 text-sm mb-3">בחר חפץ אחד מהמחסן של טולדו:</p>
-                      <div class="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1">
-                        {Object.values(ITEMS).map(item => (
-                          <button 
-                            key={item.id}
-                            onClick={() => pickToledoItem(item)}
-                            class="bg-slate-800 hover:bg-yellow-500/20 border border-slate-700 hover:border-yellow-500 p-2 rounded flex flex-col items-center gap-1 transition">
-                            <span class="text-2xl">{item.icon}</span>
-                            <span class="text-xs font-bold text-slate-200">{item.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <button 
-                    onClick={() => setGameState('PLAYING')}
-                    class="mt-4 text-xs text-slate-400 hover:text-white underline">
-                    יציאה לרחוב
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* סרגל התיק האישי (Inventory) שבתחתית */}
-          <div class="w-full mt-3 bg-slate-900 p-3 rounded-lg border border-slate-700 flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <span class="text-xs font-bold text-slate-400">🎒 התיק שלך (עד 2 חפצים):</span>
+              <button onClick={toggleSound} class="p-1.5 bg-slate-800/80 rounded-lg text-xs hover:bg-slate-700">
+                {isMuted ? '🔇' : '🔊'}
+              </button>
+              <button 
+                onClick={() => setGameState(gameState === 'PLAYING' ? 'START' : 'PLAYING')}
+                class="bg-slate-800/80 hover:bg-slate-700 px-3 py-1 rounded-lg font-bold text-xs">
+                {gameState === 'PLAYING' ? 'השהה' : 'חזור'}
+              </button>
+            </div>
+          </header>
+
+          {/* 2. FULL-SCREEN PHASER CANVAS CONTAINER */}
+          <main class="absolute inset-0 w-full h-full z-0">
+            <div ref={phaserContainerRef} class="w-full h-full"></div>
+          </main>
+
+          {/* 3. CORNER FLY-IN TOAST NOTIFICATION */}
+          {cornerToast && (
+            <div class="absolute bottom-14 right-4 z-30 animate-slide-in-right bg-slate-900/95 border-2 border-amber-400/80 text-amber-200 px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md max-w-sm">
+              <span class="text-xl">{cornerToast.icon}</span>
+              <span class="text-xs sm:text-sm font-bold">{cornerToast.text}</span>
+            </div>
+          )}
+
+          {/* MOBILE TOUCH OVERLAY CONTROLS */}
+          {gameState === 'PLAYING' && (
+            <div class="absolute inset-0 pointer-events-none z-20 flex justify-between p-4 sm:hidden">
+              <div class="pointer-events-auto self-end grid grid-cols-3 gap-1 w-32 h-32 opacity-85">
+                <div></div>
+                <button 
+                  onTouchStart={() => setTouchKey('up', true)} onTouchEnd={() => setTouchKey('up', false)}
+                  class="bg-slate-800/90 active:bg-emerald-500 rounded-xl flex items-center justify-center text-lg shadow-lg">⬆️</button>
+                <div></div>
+
+                <button 
+                  onTouchStart={() => setTouchKey('left', true)} onTouchEnd={() => setTouchKey('left', false)}
+                  class="bg-slate-800/90 active:bg-emerald-500 rounded-xl flex items-center justify-center text-lg shadow-lg">⬅️</button>
+                <div></div>
+                <button 
+                  onTouchStart={() => setTouchKey('right', true)} onTouchEnd={() => setTouchKey('right', false)}
+                  class="bg-slate-800/90 active:bg-emerald-500 rounded-xl flex items-center justify-center text-lg shadow-lg">➡️</button>
+
+                <div></div>
+                <button 
+                  onTouchStart={() => setTouchKey('down', true)} onTouchEnd={() => setTouchKey('down', false)}
+                  class="bg-slate-800/90 active:bg-emerald-500 rounded-xl flex items-center justify-center text-lg shadow-lg">⬇️</button>
+                <div></div>
+              </div>
+
+              <button 
+                onClick={() => window.gameBridge.phaserScene && window.gameBridge.phaserScene.handleAction()}
+                class="pointer-events-auto self-end w-20 h-20 bg-emerald-500/90 active:bg-emerald-400 text-slate-950 font-black text-xs rounded-full shadow-2xl flex flex-col items-center justify-center border-2 border-emerald-300 opacity-90">
+                <span class="text-2xl">🖐️</span>
+                <span>עזור/קח</span>
+              </button>
+            </div>
+          )}
+
+          {/* START OVERLAY SCREEN */}
+          {gameState === 'START' && (
+            <div class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center z-40 overflow-y-auto">
+              <h1 class="text-4xl sm:text-6xl font-black text-emerald-400 mb-2 drop-shadow-lg">רחוב הברוש 🌳</h1>
+              <p class="text-xs sm:text-sm text-slate-300 max-w-md mb-4 leading-relaxed">
+                עזרו לשכנים בקיבוץ דפנה להשיג חפצים לפני ששכנים אחרים יקדימו אתכם!
+              </p>
+
+              <div class="bg-slate-900/90 p-4 rounded-2xl mb-6 text-right text-xs text-slate-300 space-y-2 border border-slate-800 w-full max-w-sm shadow-xl">
+                <p>🏠 <b>הבית שלך:</b> מכיל עד 3 חפצים בכל רגע! התחלה עם 2 חפצים מזומנים.</p>
+                <p>🏷️ <b>באדג' ניקוד:</b> הסתכל על הניקוד המופיע מעל הבועה הזוהרת.</p>
+                <p>🛺 <b>סכנות בכביש:</b> היזהר מקלנועיות, קורקינטים, טרקטורים ובמבות!</p>
+                <p>👑 <b>אחוזת טולדו:</b> זוהרת בזהב בפינה השמאלית העליונה - מחזיקים את כל החפצים!</p>
+              </div>
+
+              <button 
+                onClick={startGame}
+                class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl sm:text-2xl px-10 py-3.5 rounded-full shadow-2xl transition transform active:scale-95">
+                התחל משחק! 🚀
+              </button>
+            </div>
+          )}
+
+          {/* GAME OVER OVERLAY SCREEN */}
+          {gameState === 'GAME_OVER' && (
+            <div class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center z-40">
+              <h2 class="text-3xl font-black text-yellow-400 mb-2">נגמר הזמן! ⏰</h2>
+              <p class="text-lg text-slate-200 mb-6">השגת בסך הכל: <span class="font-black text-emerald-400">{score}</span> נקודות!</p>
+              <button 
+                onClick={startGame}
+                class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-base px-8 py-3 rounded-full shadow-xl">
+                שחק שוב 🔄
+              </button>
+            </div>
+          )}
+
+          {/* TOLEDO MANSION MODAL */}
+          {gameState === 'TOLEDO' && (
+            <div class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-3 text-center z-40 overflow-y-auto">
+              <div class="bg-slate-900 border-2 border-yellow-500 p-5 rounded-3xl max-w-sm w-full shadow-2xl backdrop-blur-xl">
+                <h2 class="text-2xl font-black text-yellow-400 mb-1">👑 אחוזת משפחת טולדו</h2>
+                <p class="text-xs text-slate-400 mb-4">מלכי רחוב הברוש - יש להם הכל במחסן!</p>
+
+                {!canPickToledoItem ? (
+                  <div class="py-4 space-y-3">
+                    <p class="text-slate-200 text-xs sm:text-sm animate-pulse">
+                      ☕ טולדו מציע קפה ומספר על הימים הראשונים בקיבוץ דפנה...
+                    </p>
+                    <div class="text-3xl font-black text-yellow-500 font-mono">
+                      00:0{toledoChatTimer}
+                    </div>
+                    {favors > 0 && (
+                      <button 
+                        onClick={skipToledoTalkWithFavor}
+                        class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-4 py-2 rounded-xl font-bold shadow-lg">
+                        תשלם 1 ⭐ טובה כדי לדלג
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <p class="text-xs text-slate-300 mb-3">בחר חפץ מהמחסן של טולדו:</p>
+                    <div class="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto p-1 custom-scrollbar">
+                      {Object.values(ITEMS).map(item => (
+                        <button 
+                          key={item.id}
+                          onClick={() => pickToledoItem(item)}
+                          class="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-yellow-500 p-2 rounded-xl flex flex-col items-center gap-1 transition">
+                          <img src={SVG_ASSETS[item.key]} class="w-8 h-8 object-contain" alt={item.name} />
+                          <span class="text-[10px] font-bold text-slate-200">{item.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  onClick={() => setGameState('PLAYING')}
+                  class="mt-4 text-xs text-slate-400 hover:text-white underline">
+                  חזרה לרחוב
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 4. BOTTOM FLOATING FOOTER HUD ("YOUR HOUSE") */}
+          <footer class="absolute bottom-0 left-0 right-0 z-20 bg-slate-900/80 backdrop-blur-md border-t border-slate-800/60 px-4 py-2 shadow-lg flex justify-between items-center h-12 text-xs">
+            <div class="flex items-center gap-3">
+              <span class="font-extrabold text-sky-400 flex items-center gap-1">🏠 הבית שלך:</span>
               <div class="flex gap-2">
-                {inventory.length === 0 && <span class="text-xs text-slate-500">התיק ריק</span>}
+                {inventory.length === 0 && <span class="text-slate-500 text-xs">ריק</span>}
                 {inventory.map((item, idx) => (
-                  <div key={idx} class="bg-slate-800 border border-slate-600 px-3 py-1 rounded-lg flex items-center gap-2 text-sm">
-                    <span>{item.icon}</span>
-                    <span class="font-medium text-xs">{item.name}</span>
-                    <button 
-                      onClick={() => dropItem(idx)}
-                      title="הפל לרצפה"
-                      class="text-xs text-red-400 hover:text-red-300 font-bold mr-1">
-                      ✕
-                    </button>
+                  <div key={idx} class="bg-slate-800/90 border border-slate-700/80 px-2.5 py-1 rounded-xl flex items-center gap-2 shadow-md">
+                    <img src={SVG_ASSETS[item.key]} class="w-5 h-5 object-contain" alt={item.name} />
+                    <span class="font-bold text-[11px] text-slate-200">{item.name}</span>
+                    <button onClick={() => dropItem(idx)} class="text-red-400 hover:text-red-300 font-black text-xs mr-0.5" title="הפל לרצפה">✕</button>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div class="text-xs text-slate-400 hidden md:block">
-              חפצים כבדים (מכסחת דשא/מקדחה) מאיטים את מהירות ההליכה שלך!
+            <div class="text-[11px] text-slate-400 hidden sm:block">
+              עד 3 חפצים בבית | מקש Space / E ליד בית לעזרה או איסוף
             </div>
-          </div>
+          </footer>
 
         </div>
       );
     }
 
-    // הזרקת האפליקציה ל-DOM
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<CypressStreetGame />);
+    root.render(<CypressStreetApp />);
   </script>
 </body>
 </html>
-
