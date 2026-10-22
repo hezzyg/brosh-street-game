@@ -33,17 +33,16 @@
     .custom-scrollbar::-webkit-scrollbar { width: 4px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
 
-    @keyframes toastIn { from { transform: translate(-50%, -12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
-    .toast { animation: toastIn .18s ease-out; }
+    @keyframes toastIn { 0% { transform: translateX(-16px) scale(.9); opacity: 0; } 60% { transform: translateX(3px) scale(1.04); } 100% { transform: none; opacity: 1; } }
+    .toast-in { animation: toastIn .25s ease-out; }
     @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
     .pop { animation: pop .35s ease-out; }
-    /* Short landscape phones (iPhone ≈ 340px tall): compact start screen so nothing is cut off */
+    /* Short landscape phones (iPhone ≈ 340px tall): compact overlays so nothing is cut off */
     @media (max-height: 420px) {
-      .start-title { font-size: 30px !important; line-height: 1.1; margin-bottom: 0 !important; }
-      .start-card { padding: 8px 12px !important; margin-bottom: 8px !important; font-size: 11px; }
-      .start-card > p { margin-top: 2px !important; }
+      .start-title { font-size: 30px !important; line-height: 1.1; margin-bottom: 2px !important; }
       .start-btn { font-size: 18px !important; padding: 8px 32px !important; }
       .start-hint { margin-top: 6px !important; }
+      .compact-pad { padding: 10px !important; }
     }
     .safe-x { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 
@@ -72,7 +71,8 @@
     const { useState, useEffect, useRef, useSyncExternalStore } = React;
 
     // ================= CONFIG =================
-    const W = 1000, H = 600;
+    const W = 1100, H = 600;                 // world size (6 houses per side)
+    const VIEW_H = 530, VIEW_Y = 35;         // camera shows y 35..565 (trims empty grass so the street is bigger)
     const ROUND_SECONDS = 180;
     const RUSH_SECONDS = 30;                 // last 30s: double points
     const DOOR_N = 150, DOOR_S = 452;        // where the player "knocks"
@@ -90,6 +90,17 @@
     const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
 
+    // ================= LEADERBOARD CONFIG (Firebase Firestore) =================
+    // Paste your Firebase web app's apiKey + projectId here to turn on the shared leaderboard.
+    // Leave empty = local-only leaderboard (scores saved on this device).
+    const FIREBASE = { apiKey: 'AIzaSyASSDbF7es8NWCvU22Cp4K05KGDmfaHJFM', projectId: 'brosh-game' };
+
+    // ================= LOCAL STORAGE =================
+    const ls = {
+      get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+      set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+    };
+
     // ================= TINY STORE (single source of truth for React + Phaser) =================
     // Fixes the old race where Phaser read inventory through a useEffect-synced copy
     // (two pickups in the same frame could overwrite each other).
@@ -99,6 +110,7 @@
         score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS,
         inventory: [], toast: null, near: null, toledoWait: 0, rush: false, muted: false,
         stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, final: null,
+        profile: null, overlay: null, board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
       },
       subs: new Set(),
       get: () => store.s,
@@ -118,31 +130,88 @@
       return 'data:image/svg+xml;base64,' + window.btoa(encoded);
     };
 
-    // Simple front-facing kibbutznik
-    const person = ({ shirt, pants = '#1e3a8a', skin = '#fcd9b6', hair = '#4a2c0f', style = 'short', hat = null }) => {
-      const hairSvg = {
-        short: `<path d="M17 20 Q28 6 39 20 Q36 13 28 12 Q20 13 17 20Z" fill="${hair}"/>`,
-        long: `<path d="M15 30 Q13 8 28 9 Q43 8 41 30 L38 30 Q39 16 28 15 Q17 16 18 30Z" fill="${hair}"/>`,
-        bald: `<path d="M17 22 Q17 17 19 16 M39 22 Q39 17 37 16" stroke="${hair}" stroke-width="3" fill="none"/>`,
-        curly: `<g fill="${hair}"><circle cx="20" cy="15" r="5"/><circle cx="28" cy="11" r="6"/><circle cx="36" cy="15" r="5"/></g>`,
-      }[style];
-      const hatSvg = hat === 'tembel'
-        ? `<path d="M15 17 Q28 0 41 17Z" fill="#a3b18a" stroke="#6b7a55" stroke-width="1.5"/><ellipse cx="28" cy="17" rx="16" ry="3.5" fill="#8a9a6b"/>`
-        : '';
+    // ---------- Character look options (used by the customizer, the player sprite and rivals) ----------
+    const LOOK = {
+      gender: [{ id: 'm', label: '👨 גבר' }, { id: 'f', label: '👩 אישה' }],
+      hair: [{ id: 'short', label: 'קצר' }, { id: 'long', label: 'ארוך' }, { id: 'curly', label: 'מתולתל' }, { id: 'pony', label: 'קוקו' }],
+      hairColor: ['#1c1917', '#5b3a1e', '#a0522d', '#e3b85f', '#c2410c', '#9ca3af'],
+      skin: ['#fde3c8', '#f5c99f', '#e0a878', '#b9774a', '#7b4a2c'],
+      outfit: [
+        { id: 'work', label: 'בגדי עבודה', shirt: '#2563eb', bottom: '#a8a29e', kind: 'shorts' },
+        { id: 'tee', label: 'טי-שירט', shirt: '#10b981', bottom: '#1e3a8a', kind: 'pants' },
+        { id: 'overalls', label: 'סרבל', shirt: '#f8fafc', bottom: '#2563eb', kind: 'overalls' },
+        { id: 'dress', label: 'שמלה', shirt: '#e11d48', bottom: '#e11d48', kind: 'dress' },
+        { id: 'sport', label: 'אימונית', shirt: '#7c3aed', bottom: '#7c3aed', kind: 'pants', sleeves: true },
+        { id: 'shabbat', label: 'לבן של שבת', shirt: '#ffffff', bottom: '#334155', kind: 'pants' },
+      ],
+      hat: [{ id: 'none', label: 'בלי' }, { id: 'tembel', label: 'טמבל' }, { id: 'cap', label: 'מצחייה' }],
+    };
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    const randomLook = () => {
+      const gender = pick(['m', 'f']);
+      return {
+        gender, hair: gender === 'f' ? pick(['long', 'pony', 'curly']) : pick(['short', 'curly', 'short']),
+        hairColor: pick(LOOK.hairColor), skin: pick(LOOK.skin), outfit: pick(LOOK.outfit).id, hat: pick(['none', 'none', 'tembel', 'cap']),
+      };
+    };
+    const NAMES = {
+      m: ['צביקה', 'דודו', 'יוסי', 'איתי', 'גלעד', 'עמרי', 'שמוליק', 'אורי', 'בועז', 'נמרוד'],
+      f: ['שולה', 'מיכל', 'נועה', 'רותי', 'תמר', 'יעל', 'דפנה', 'אורנה', 'ליאת', 'חגית'],
+    };
+    const PLACES = ['מהרפת', 'מהלול', 'מהמכבסה', 'מהבריכה', 'מהמטבח', 'מהפרדס', 'מהמוסך', 'מהגן'];
+    const randomName = (g = 'm') => `${pick(NAMES[g] || NAMES.m)} ${pick(PLACES)}`.slice(0, 16);
+
+    // Front-facing kibbutznik built from a look
+    const person = (look) => {
+      const L = { ...randomLook(), ...look };
+      const o = LOOK.outfit.find(x => x.id === L.outfit) || LOOK.outfit[0];
+      const skin = L.skin, hc = L.hairColor, f = L.gender === 'f';
+      const bareLegs = o.kind === 'shorts' || o.kind === 'dress';
+      const legs = `
+        <rect x="19" y="47" width="7" height="13" rx="3" fill="${bareLegs ? skin : o.bottom}"/>
+        <rect x="30" y="47" width="7" height="13" rx="3" fill="${bareLegs ? skin : o.bottom}"/>
+        <rect x="18" y="58" width="9" height="3" rx="1.5" fill="#3f2a14"/><rect x="29" y="58" width="9" height="3" rx="1.5" fill="#3f2a14"/>
+        ${o.kind === 'shorts' ? `<rect x="17" y="45" width="22" height="7" rx="2" fill="${o.bottom}"/>` : ''}`;
+      const arm = (x) => o.sleeves
+        ? `<rect x="${x}" y="32" width="7" height="14" rx="3.5" fill="${o.shirt}"/><circle cx="${x + 3.5}" cy="46" r="3.2" fill="${skin}"/>`
+        : `<rect x="${x}" y="32" width="7" height="15" rx="3.5" fill="${skin}"/><rect x="${x}" y="31" width="7" height="5" rx="2.5" fill="${o.shirt}"/>`;
+      const torsoX = f ? 15 : 14, torsoW = f ? 26 : 28;
+      let torso = `<rect x="${torsoX}" y="30" width="${torsoW}" height="20" rx="8" fill="${o.shirt}" stroke="rgba(0,0,0,.22)" stroke-width="1.5"/>`;
+      if (o.kind === 'overalls') torso += `<rect x="18" y="38" width="20" height="13" rx="3" fill="${o.bottom}"/><path d="M20 38 L19 30 M36 38 L37 30" stroke="${o.bottom}" stroke-width="2.5"/>`;
+      if (o.kind === 'dress') torso += `<path d="M15 42 L41 42 L45 54 L11 54Z" fill="${o.shirt}" stroke="rgba(0,0,0,.2)"/><circle cx="21" cy="47" r="1.5" fill="#fde68a"/><circle cx="33" cy="49" r="1.5" fill="#fde68a"/><circle cx="27" cy="38" r="1.5" fill="#fde68a"/>`;
+      if (o.sleeves) torso += `<path d="M28 31 V49" stroke="#ffffff" stroke-width="1.5" opacity=".7"/>`;
+      const back = { long: `<path d="M15 34 Q12 10 28 9 Q44 10 41 34 Z" fill="${hc}"/>`, pony: `<ellipse cx="42" cy="22" rx="5" ry="9" fill="${hc}" transform="rotate(20 42 22)"/>` }[L.hair] || '';
+      const front = {
+        short: `<path d="M17 20 Q28 5 39 20 Q36 13 28 12 Q20 13 17 20Z" fill="${hc}"/>`,
+        long: `<path d="M17 21 Q28 4 39 21 Q33 13 28 14 Q22 13 17 21Z" fill="${hc}"/>`,
+        curly: `<g fill="${hc}"><circle cx="19" cy="16" r="5"/><circle cx="25" cy="11" r="5.5"/><circle cx="32" cy="11" r="5.5"/><circle cx="38" cy="16" r="5"/></g>`,
+        pony: `<path d="M17 20 Q28 5 39 20 Q34 12 28 12 Q21 12 17 20Z" fill="${hc}"/><circle cx="38" cy="15" r="2.5" fill="#f472b6"/>`,
+      }[L.hair] || '';
+      const hat = {
+        tembel: `<path d="M15 17 Q28 0 41 17Z" fill="#a3b18a" stroke="#6b7a55" stroke-width="1.5"/><ellipse cx="28" cy="17" rx="16" ry="3.5" fill="#8a9a6b"/>`,
+        cap: `<path d="M17 17 Q28 3 39 17Z" fill="#dc2626"/><path d="M33 16 Q44 14 46 18 L33 18Z" fill="#b91c1c"/>`,
+      }[L.hat] || '';
+      const face = `
+        <circle cx="24" cy="21" r="1.6" fill="#0f172a"/><circle cx="32" cy="21" r="1.6" fill="#0f172a"/>
+        ${f ? '<path d="M22 19 l-1.5 -1.5 M34 19 l1.5 -1.5" stroke="#0f172a" stroke-width="1"/><circle cx="21" cy="25" r="2" fill="#fb7185" opacity=".45"/><circle cx="35" cy="25" r="2" fill="#fb7185" opacity=".45"/>' : ''}
+        <path d="M24 26 Q28 29 32 26" stroke="#0f172a" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
       return createSVGDataURI(`
         <svg xmlns="http://www.w3.org/2000/svg" width="56" height="64" viewBox="0 0 56 64">
           <ellipse cx="28" cy="60" rx="15" ry="4" fill="#000" opacity=".28"/>
-          <rect x="19" y="47" width="7" height="13" rx="3" fill="${pants}"/>
-          <rect x="30" y="47" width="7" height="13" rx="3" fill="${pants}"/>
-          <rect x="10" y="32" width="7" height="15" rx="3.5" fill="${skin}"/>
-          <rect x="39" y="32" width="7" height="15" rx="3.5" fill="${skin}"/>
-          <rect x="14" y="30" width="28" height="21" rx="8" fill="${shirt}" stroke="rgba(0,0,0,.25)" stroke-width="1.5"/>
+          ${legs}${arm(10)}${arm(39)}${torso}${back}
           <circle cx="28" cy="21" r="11" fill="${skin}"/>
-          <circle cx="24" cy="21" r="1.6" fill="#0f172a"/><circle cx="32" cy="21" r="1.6" fill="#0f172a"/>
-          <path d="M24 26 Q28 29 32 26" stroke="#0f172a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-          ${hairSvg}${hatSvg}
+          ${face}${front}${hat}
         </svg>`);
     };
+
+    // ---------- Player profile (saved in localStorage) ----------
+    const newProfile = () => {
+      const look = { ...randomLook(), hat: 'tembel' };
+      return { name: randomName(look.gender), look, pid: Math.random().toString(36).slice(2, 12) };
+    };
+    const savedProfile = ls.get('cypress_profile', null);
+    store.s.profile = savedProfile || newProfile();
+    let PLAYER_KEY = 'player';
 
     const house = ({ wall, roof, door = '#78350f', extra = '' }) => createSVGDataURI(`
       <svg xmlns="http://www.w3.org/2000/svg" width="140" height="110" viewBox="0 0 140 110">
@@ -164,16 +233,15 @@
       </svg>`);
 
     const GRAPHICS = {
-      player: person({ shirt: '#10b981', pants: '#1e3a8a', hat: 'tembel' }),
-      ai_0: person({ shirt: '#ef4444', hair: '#78350f', style: 'short' }),
-      ai_1: person({ shirt: '#ec4899', hair: '#b45309', style: 'long', skin: '#f5d0a9' }),
-      ai_2: person({ shirt: '#f59e0b', hair: '#94a3b8', style: 'bald', skin: '#e8b98f' }),
-      ai_3: person({ shirt: '#8b5cf6', hair: '#1c1917', style: 'curly', skin: '#c68b59' }),
+      player: person(store.s.profile.look),
+      ai_0: person(randomLook()), ai_1: person(randomLook()), ai_2: person(randomLook()), ai_3: person(randomLook()),
 
       house_a: house({ wall: '#fef3c7', roof: '#c2410c' }),
       house_b: house({ wall: '#e0f2fe', roof: '#b91c1c' }),
       house_c: house({ wall: '#fce7f3', roof: '#9a3412' }),
       house_d: house({ wall: '#dcfce7', roof: '#be123c' }),
+      house_e: house({ wall: '#ede9fe', roof: '#7c2d12' }),
+      house_f: house({ wall: '#ffedd5', roof: '#991b1b' }),
       house_player: house({ wall: '#93c5fd', roof: '#1e40af', door: '#1e293b',
         extra: '<path d="M70 62 c-4 -6 -12 -2 -8 4 l8 7 l8 -7 c4 -6 -4 -10 -8 -4z" fill="#ef4444"/>' }),
       house_toledo: createSVGDataURI(`
@@ -353,19 +421,26 @@
     };
     const ITEM_LIST = Object.values(ITEMS);
     const BASICS = ITEM_LIST.filter(i => i.basic);
-    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-    const HOUSES_DATA = [
-      { id: 'toledo', name: 'אחוזת טולדו 👑', who: 'משפחת טולדו', x: 110, y: 98, side: 'N', isToledo: true, spriteKey: 'house_toledo' },
-      { id: 2, name: '2 · כהן', who: 'משפחת כהן', x: 310, y: 100, side: 'N', spriteKey: 'house_a' },
-      { id: 4, name: '4 · לוי', who: 'משפחת לוי', x: 500, y: 100, side: 'N', spriteKey: 'house_b' },
-      { id: 8, name: '8 · ישראלי', who: 'משפחת ישראלי', x: 690, y: 100, side: 'N', spriteKey: 'house_c' },
-      { id: 10, name: '10 · אברהם', who: 'משפחת אברהם', x: 880, y: 100, side: 'N', spriteKey: 'house_d' },
-      { id: 1, name: 'הבית שלך 🏠', who: 'הבית שלך', x: 110, y: 505, side: 'S', isPlayerHome: true, spriteKey: 'house_player' },
-      { id: 3, name: '3 · מזרחי', who: 'משפחת מזרחי', x: 310, y: 505, side: 'S', spriteKey: 'house_c' },
-      { id: 5, name: '5 · גולן', who: 'משפחת גולן', x: 500, y: 505, side: 'S', spriteKey: 'house_d' },
-      { id: 7, name: '7 · שטרן', who: 'משפחת שטרן', x: 690, y: 505, side: 'S', spriteKey: 'house_a' },
-      { id: 9, name: '9 · פרידמן', who: 'משפחת פרידמן', x: 880, y: 505, side: 'S', spriteKey: 'house_b' },
+    // Cypress Street, left → right. The player picks one of these (not Toledo!) as their home.
+    const HOUSE_X = [95, 277, 459, 641, 823, 1005];
+    const STREET = {
+      N: [['toledo', 'טולדו'], ['eyal-schwartz', 'אייל-שוורץ'], ['langleib-jr', 'לנגליב ג׳וניור'], ['israeli', 'ישראלי'], ['hakim', 'חכים'], ['cohen', 'כהן']],
+      S: [['pintel-yanon', 'פינטל-ינון'], ['gershoni', 'גרשוני'], ['valk', 'ולק'], ['najar-sabag', 'נג׳ר-סבג'], ['shiri', 'שירי'], ['langleib', 'לנגליב']],
+    };
+    const HOUSE_SKINS = ['house_a', 'house_b', 'house_c', 'house_d', 'house_e', 'house_f'];
+    const HOUSES_DATA = ['N', 'S'].flatMap((side, si) => STREET[side].map(([id, family], i) => ({
+      id, family, side, x: HOUSE_X[i], y: side === 'N' ? 100 : 505,
+      name: id === 'toledo' ? 'אחוזת טולדו 👑' : family,
+      who: `משפחת ${family}`,
+      isToledo: id === 'toledo',
+      spriteKey: id === 'toledo' ? 'house_toledo' : HOUSE_SKINS[(i + si * 3) % HOUSE_SKINS.length],
+    })));
+    const houseById = (id) => HOUSES_DATA.find(h => h.id === id);
+    const TOLEDO_JOKES = [
+      '👑 נחמד לחלום… אבל יש רק טולדו אחד ברחוב הזה!',
+      '👑 טולדו? חחח. הם גרים שם מאז שקמה דפנה ב-1939.',
+      '👑 אחוזת טולדו לא להשכרה. נסה בית צנוע יותר 😅',
+      '👑 יש רק טולדו אחד ברחוב הזה — ואתה לא הוא.',
     ];
 
     const VEHICLES = [
@@ -408,9 +483,17 @@
 
         // Houses
         this.houses = HOUSES_DATA.map(d => this.createHouse(d));
+        this.pickMode = null;
+        this.applyHome(store.s.profile.home);
 
-        // Player
-        this.player = this.physics.add.sprite(110, 430, 'player').setScale(0.85).setDepth(430);
+        this.cameras.main.setScroll(0, VIEW_Y);
+
+        // Player (texture generated from the saved character)
+        const home = this.homeHouse();
+        const startX = home ? home.doorX : W / 2, startY = home ? home.doorY + (home.side === 'N' ? 18 : -18) : 430;
+        this.player = this.physics.add.sprite(startX, startY, PLAYER_KEY).setScale(0.85).setDepth(430);
+        this.nameTag = this.add.text(startX, startY - 36, store.s.profile.name, hebText(11, '#ffffff', { backgroundColor: '#0f172aaa', padding: { x: 4, y: 1 } }))
+          .setOrigin(0.5).setDepth(2900);
         this.player.body.setSize(30, 18).setOffset(13, 44);
         this.player.setCollideWorldBounds(true);
         this.prompt = this.add.text(0, 0, '', hebText(12, '#fde047', { backgroundColor: '#0f172acc', padding: { x: 6, y: 3 } }))
@@ -444,6 +527,11 @@
         this.lastTick = null;
         this.toledoWait = 0;
 
+        if (data.firstItem && home) {
+          // Come out of your own front door
+          this.player.setPosition(home.doorX, home.doorY).setAlpha(0).setScale(0.4);
+          this.tweens.add({ targets: this.player, alpha: 1, scale: 0.85, y: startY, duration: 450, ease: 'Back.out' });
+        }
         if (data.firstItem) {
           // Onboarding guarantee: first request matches a starting item, no rival, extra patience
           this.time.delayedCall(700, () => {
@@ -482,7 +570,7 @@
         for (let x = 10; x < W; x += 70) g.fillRect(x, 298, 40, 5);
         // crosswalk near home/Toledo
         g.fillStyle(0xf8fafc, 0.85);
-        for (let y = 214; y < 390; y += 22) g.fillRect(200, y, 50, 12);
+        for (let y = 214; y < 390; y += 22) g.fillRect(161, y, 50, 12);
         // red/white curbs
         for (let x = 0; x < W; x += 30) {
           const c = (x / 30) % 2 === 0 ? 0xdc2626 : 0xf8fafc;
@@ -490,7 +578,7 @@
         }
 
         // swaying cypress trees
-        [20, 210, 405, 595, 785, 980].forEach((tx, i) => {
+        [4, 186, 368, 550, 732, 914, 1096].forEach((tx, i) => {
           [{ y: 140, d: 2 }, { y: 600, d: 600 }].forEach(({ y, d }) => {
             const t = this.add.image(tx, y, 'tree_cypress').setOrigin(0.5, 0.95).setScale(1.05).setDepth(d);
             this.tweens.add({ targets: t, angle: { from: -2, to: 2 }, duration: 1600 + i * 170, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
@@ -499,12 +587,13 @@
       }
 
       createHouse(data) {
-        const sprite = this.add.image(data.x, data.y, data.spriteKey).setDepth(1);
+        const sprite = this.add.image(data.x, data.y, data.spriteKey).setDepth(1).setScale(0.88)
+          .setInteractive({ useHandCursor: true });
         const aura = this.add.circle(data.x, data.y, 58, data.isToledo ? 0xfacc15 : 0x38bdf8, 0.5).setDepth(0).setVisible(!!data.isToledo);
         this.tweens.add({ targets: aura, scale: { from: 0.9, to: 1.35 }, alpha: { from: data.isToledo ? 0.25 : 0.55, to: 0 }, duration: data.isToledo ? 1800 : 900, repeat: -1 });
 
         const labelY = data.side === 'N' ? data.y + 64 : data.y - 66;
-        this.add.text(data.x, labelY, data.name, hebText(12, data.isToledo ? '#fde047' : '#f8fafc', {
+        const label = this.add.text(data.x, labelY, data.name, hebText(12, data.isToledo ? '#fde047' : '#f8fafc', {
           backgroundColor: '#0f172a99', padding: { x: 6, y: 2 },
         })).setOrigin(0.5).setDepth(2);
 
@@ -520,16 +609,61 @@
         bubble.add([bubbleBg, itemIcon, scoreBadge, barBg, barFill, match, rival]);
         this.tweens.add({ targets: bubble, y: by - 5, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
 
-        return {
-          ...data, sprite, aura, bubble, bubbleBg, itemIcon, scoreBadge, barFill, match, rival, bubbleY: by,
-          doorX: data.x, doorY: data.side === 'N' ? DOOR_N : DOOR_S, currentRequest: null,
+        const h = {
+          ...data, sprite, label, aura, bubble, bubbleBg, itemIcon, scoreBadge, barFill, match, rival, bubbleY: by,
+          doorX: data.x, doorY: data.side === 'N' ? DOOR_N : DOOR_S, currentRequest: null, isPlayerHome: false,
         };
+        // Choosing your home: tap a house while the "pick your house" banner is up
+        sprite.on('pointerover', () => { if (this.pickMode) sprite.setScale(0.96); });
+        sprite.on('pointerout', () => sprite.setScale(0.88));
+        sprite.on('pointerup', () => this.onHouseClick(h));
+        return h;
+      }
+
+      homeHouse() { return this.houses.find(h => h.isPlayerHome); }
+
+      applyHome(id) {
+        this.houses.forEach(h => {
+          h.isPlayerHome = h.id === id;
+          h.sprite.setTexture(h.isPlayerHome ? 'house_player' : h.spriteKey);
+          h.label.setText(h.isPlayerHome ? `🏠 ${h.family} · הבית שלך` : h.name)
+            .setBackgroundColor(h.isPlayerHome ? '#1d4ed8dd' : '#0f172a99');
+        });
+      }
+
+      onHouseClick(h) {
+        if (store.s.overlay !== 'pickHouse') return;
+        if (h.isToledo) {
+          sound.fail(); buzz([30, 30, 30]);
+          this.tweens.add({ targets: h.sprite, angle: { from: -4, to: 4 }, duration: 70, yoyo: true, repeat: 3, onComplete: () => h.sprite.setAngle(0) });
+          this.speech(h, 'רק אחד! ☝️');
+          return toast(pick(TOLEDO_JOKES), 'gold');
+        }
+        Game.chooseHome(h.id);
+      }
+
+      moveIntoHome(h) {
+        this.applyHome(h.id);
+        sound.deliver(1); buzz(25);
+        this.burst.explode(30, h.x, h.y - 20);
+        this.tweens.add({ targets: h.sprite, scaleX: 0.98, scaleY: 0.8, duration: 110, yoyo: true, repeat: 1 });
+        const p = this.player;
+        const outY = h.doorY + (h.side === 'N' ? 18 : -18);
+        p.setFlipX(h.doorX < p.x);
+        this.tweens.add({ targets: p, x: h.doorX, y: outY, duration: 650, ease: 'Sine.inOut',
+          onComplete: () => this.tweens.add({ targets: p, y: h.doorY, alpha: 0, scale: 0.5, duration: 220, yoyo: true, hold: 250 }) });
       }
 
       // ---------- main loop ----------
       update(time, delta) {
         const dt = Math.min(delta, 50) / 1000;
         this.updateVehicles(time, dt);
+        this.nameTag.setPosition(this.player.x, this.player.y - 36).setAlpha(this.player.alpha);
+        const picking = store.s.overlay === 'pickHouse';
+        if (picking !== this.pickMode) {
+          this.pickMode = picking;
+          this.houses.forEach(h => { if (!h.isToledo) h.aura.setVisible(picking || !!h.currentRequest); });
+        }
 
         const phase = store.s.phase;
         const running = phase === 'PLAYING' || phase === 'TOLEDO';
@@ -667,7 +801,7 @@
           if (time < gi.readyAt || this.stun > 0) return true;
           if (Phaser.Math.Distance.Between(this.player.x, this.player.y + 10, gi.obj.x, gi.obj.y) < 34) {
             if (inv.length >= 3) {
-              if (time > this.fullHintAt) { toast('הבית שלך מלא! זרוק חפץ (✕) כדי להרים.', 'bad'); this.fullHintAt = time + 3000; }
+              if (time > this.fullHintAt) { toast('התיק מלא! זרוק חפץ (✕) כדי להרים.', 'bad'); this.fullHintAt = time + 3000; }
               return true;
             }
             this.addToInventory(gi.item, `הרמת מהרצפה: ${gi.item.icon} ${gi.item.name}`);
@@ -847,7 +981,7 @@
 
       showMissingHint(house) {
         const it = house.currentRequest.item;
-        const where = it.basic ? 'יש כזה בבית שלך 🏠 (למטה משמאל)' : 'רק לטולדו 👑 יש (למעלה משמאל)';
+        const where = it.basic ? 'יש כזה בבית שלך 🏠' : 'רק לטולדו 👑 יש (למעלה משמאל)';
         toast(`${house.who} צריכה ${it.icon} ${it.name} — ${where}`, 'info');
       }
 
@@ -927,6 +1061,7 @@
       }
 
       addToInventory(item, msg) {
+        if (store.s.inventory.length >= 3) return;
         store.set(st => ({ inventory: [...st.inventory, item] }));
         sound.pickup(); buzz(15);
         this.popText(this.player.x, this.player.y - 46, item.icon, '#ffffff', 26);
@@ -935,11 +1070,16 @@
 
       restockAtHome() {
         const inv = store.s.inventory;
-        if (inv.length >= 3) return toast('הבית שלך מלא! זרוק חפץ (✕) כדי לפנות מקום.', 'bad');
+        if (inv.length >= 3) return toast('התיק מלא! זרוק חפץ (✕) כדי לפנות מקום.', 'bad');
         // Smart restock: grab a basic item someone is actually waiting for
         const wanted = this.houses.map(h => h.currentRequest?.item).filter(i => i && i.basic && !inv.some(x => x.id === i.id));
         const item = wanted[0] || pick(BASICS);
-        this.addToInventory(item, `לקחת מהבית: ${item.icon} ${item.name}`);
+        const h = this.homeHouse(), p = this.player, backY = p.y;
+        this.stun = 520; // in and out of the front door
+        this.tweens.add({ targets: p, x: h.doorX, y: h.doorY, alpha: 0, scale: 0.5, duration: 200, yoyo: true, hold: 140,
+          onComplete: () => { p.setAlpha(1).setScale(0.85); p.y = backY; } });
+        // (not onYoyo — Phaser fires that once per tweened property)
+        this.time.delayedCall(270, () => this.addToInventory(item, `לקחת מהבית: ${item.icon} ${item.name}`));
       }
 
       openToledo() {
@@ -968,6 +1108,7 @@
         const isRecord = s.score > best;
         if (isRecord) { try { localStorage.setItem('cypress_best', String(s.score)); } catch (e) {} }
         store.set({ phase: 'OVER', near: null, final: { score: s.score, best: Math.max(best, s.score), isRecord, ...s.stats } });
+        Board.submit({ name: s.profile.name, score: s.score, deliveries: s.stats.deliveries, combo: s.stats.bestCombo, look: s.profile.look, pid: s.profile.pid });
         this.player.setVelocity(0, 0);
         sound.stopBGM(); sound.end();
         if (isRecord) for (let i = 0; i < 4; i++) this.time.delayedCall(i * 250, () => this.burst.explode(40, 200 + Math.random() * 600, 300));
@@ -977,19 +1118,31 @@
     // ================= GAME API (React → Phaser) =================
     const Game = {
       scene: () => window.__game?.scene?.getScene('MainScene'),
-      start() {
-        requestFullScreenMode();
+      async start() {
+        if (!store.s.profile.home) return store.set({ overlay: 'pickHouse' }); // pick your house first
+        requestFullScreenMode();               // must run synchronously inside the tap
         sound.init(); sound.stopBGM(); sound.startBGM();
+        store.set({ overlay: null });
+        await refreshPlayerTexture();
         const shuffled = [...ITEM_LIST].sort(() => Math.random() - 0.5);
         const [i1, i2] = shuffled;
         store.set({
           phase: 'PLAYING', score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS, inventory: [i1, i2],
           toast: null, near: null, rush: false, final: null, toledoWait: 0,
-          stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 },
+          stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, submit: null,
         });
         const sc = this.scene(); if (sc) sc.elapsed = 0;
         // Restart the scene so leftovers from the previous round (requests, rivals, items) are cleared
         sc?.scene.restart({ firstItem: i1 });
+      },
+      chooseHome(id) {
+        const profile = { ...store.s.profile, home: id };
+        ls.set('cypress_profile', profile);
+        store.set({ profile });
+        const h = this.scene()?.houses.find(x => x.id === id);
+        if (h) this.scene().moveIntoHome(h);
+        toast(`🏠 ברוכים הבאים הביתה! גרים עכשיו אצל ${houseById(id).who}`, 'good');
+        setTimeout(() => { if (store.s.overlay === 'pickHouse') store.set({ overlay: null }); }, 1500);
       },
       action() { this.scene()?.handleAction(); },
       drop(idx) { sound.click(); this.scene()?.dropFromInventory(idx); },
@@ -1000,7 +1153,7 @@
         store.set(s => ({ favors: s.favors - 1, toledoWait: 0 }));
       },
       pickToledo(item) {
-        if (store.s.inventory.length >= 3) return toast('הבית שלך מלא!', 'bad');
+        if (store.s.inventory.length >= 3) return toast('התיק מלא!', 'bad');
         this.scene()?.addToInventory(item, `לקחת מטולדו: ${item.icon} ${item.name}`);
         if (store.s.inventory.length >= 3) this.closeToledo();
       },
@@ -1015,6 +1168,81 @@
       }
     }
 
+    // Rebuild the player's sprite from the saved look (new key each time so the old sprite never points at a deleted texture)
+    let texCounter = 0;
+    function refreshPlayerTexture() {
+      return new Promise(resolve => {
+        const game = window.__game;
+        if (!game) return resolve();
+        const img = new Image();
+        img.onload = () => {
+          const key = 'player_' + (++texCounter);
+          game.textures.addImage(key, img);
+          PLAYER_KEY = key;
+          const sc = Game.scene();
+          if (sc && sc.player) { sc.player.setTexture(key); sc.nameTag.setText(store.s.profile.name); }
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = person(store.s.profile.look);
+      });
+    }
+
+    // ================= LEADERBOARD (Firestore REST API — no SDK needed) =================
+    const Board = {
+      remote: !!(FIREBASE.apiKey && FIREBASE.projectId),
+      base: () => `https://firestore.googleapis.com/v1/projects/${FIREBASE.projectId}/databases/(default)/documents`,
+      localRows() { return ls.get('cypress_local_scores', []); },
+      addLocal(e) {
+        const rows = [...this.localRows(), e].sort((a, b) => b.score - a.score).slice(0, 20);
+        ls.set('cypress_local_scores', rows);
+      },
+      toDoc(e) {
+        return { fields: {
+          name: { stringValue: e.name }, score: { integerValue: String(e.score) },
+          deliveries: { integerValue: String(e.deliveries) }, combo: { integerValue: String(e.combo) },
+          avatar: { stringValue: JSON.stringify(e.look) }, pid: { stringValue: e.pid }, at: { timestampValue: e.at },
+        } };
+      },
+      fromDoc(d) {
+        const f = d.fields || {};
+        let look = null; try { look = JSON.parse(f.avatar?.stringValue || 'null'); } catch (e) {}
+        return { name: f.name?.stringValue || '?', score: Number(f.score?.integerValue || 0), deliveries: Number(f.deliveries?.integerValue || 0),
+          combo: Number(f.combo?.integerValue || 1), look, pid: f.pid?.stringValue, at: f.at?.timestampValue };
+      },
+      async refresh() {
+        store.set(s => ({ board: { ...s.board, status: 'loading' } }));
+        if (!this.remote) return store.set({ board: { status: 'ok', rows: this.localRows(), local: true } });
+        try {
+          const res = await fetch(`${this.base()}:runQuery?key=${FIREBASE.apiKey}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'scores' }], orderBy: [{ field: { fieldPath: 'score' }, direction: 'DESCENDING' }], limit: 20 } }),
+          });
+          if (!res.ok) throw new Error(res.status);
+          const rows = (await res.json()).filter(r => r.document).map(r => this.fromDoc(r.document));
+          store.set({ board: { status: 'ok', rows, local: false } });
+        } catch (e) {
+          store.set({ board: { status: 'error', rows: this.localRows(), local: true } });
+        }
+      },
+      async submit(entry) {
+        const e = { ...entry, at: new Date().toISOString() };
+        store.set({ submit: { status: 'sending', at: e.at } });
+        if (e.score > 0) this.addLocal(e);
+        if (this.remote && e.score > 0) {
+          try {
+            const res = await fetch(`${this.base()}/scores?key=${FIREBASE.apiKey}`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.toDoc(e)),
+            });
+            store.set({ submit: { status: res.ok ? 'ok' : 'error', at: e.at } });
+          } catch (err) { store.set({ submit: { status: 'error', at: e.at } }); }
+        } else {
+          store.set({ submit: { status: e.score > 0 ? 'local' : 'skip', at: e.at } });
+        }
+        this.refresh();
+      },
+    };
+
     ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, () => store.set({ fs: isFullscreen() })));
 
     // ================= REACT UI =================
@@ -1025,18 +1253,26 @@
       info: 'border-sky-400 bg-slate-900/95',
     };
 
+    // First launch: wizard → customizer. Later launches go straight to the start screen.
+    store.s.overlay = !ls.get('cypress_onboarded', false) ? 'wizard' : !savedProfile ? 'custom' : null;
+
+    function Avatar({ look, size = 40 }) {
+      const key = JSON.stringify(look || {});
+      const src = React.useMemo(() => person(look || {}), [key]);
+      return <img src={src} alt="" draggable={false} style={{ width: size, height: size * 64 / 56 }} />;
+    }
+
     function Joystick() {
       const baseRef = useRef(null);
       const [knob, setKnob] = useState({ x: 0, y: 0 });
-      const R = 46;
+      const R = 42;
       const move = (e) => {
         const r = baseRef.current.getBoundingClientRect();
         let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
         const d = Math.hypot(dx, dy);
         if (d > R) { dx = dx / d * R; dy = dy / d * R; }
         setKnob({ x: dx, y: dy });
-        const m = Math.hypot(dx, dy) / R;
-        window.virtualStick = m < 0.2 ? { x: 0, y: 0 } : { x: dx / R, y: dy / R };
+        window.virtualStick = Math.hypot(dx, dy) / R < 0.2 ? { x: 0, y: 0 } : { x: dx / R, y: dy / R };
       };
       const end = () => { setKnob({ x: 0, y: 0 }); window.virtualStick = { x: 0, y: 0 }; };
       return (
@@ -1044,9 +1280,9 @@
           onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); move(e); }}
           onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) move(e); }}
           onPointerUp={end} onPointerCancel={end}
-          className="pointer-events-auto w-32 h-32 rounded-full bg-slate-900/40 border-2 border-white/25 relative backdrop-blur-sm"
+          className="joystick pointer-events-auto w-28 h-28 rounded-full bg-slate-900/50 border-2 border-white/25 relative backdrop-blur-sm"
           style={{ touchAction: 'none' }}>
-          <div className="absolute w-14 h-14 rounded-full bg-white/70 border-2 border-white shadow-lg"
+          <div className="absolute w-12 h-12 rounded-full bg-white/75 border-2 border-white shadow-lg"
             style={{ left: '50%', top: '50%', transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))` }} />
         </div>
       );
@@ -1059,59 +1295,248 @@
       return 'אגדת רחוב הברוש 👑';
     }
 
+    // ---------- Onboarding wizard (3 steps, skippable, remembered) ----------
+    const WIZARD_STEPS = [
+      {
+        art: '🏠💬✨', title: 'עוזרים לשכנים',
+        lines: [
+          '🏠 בית שזוהר מבקש חפץ: הבועה מראה מה צריך, כמה נקודות שווה, ופס סבלנות.',
+          '🏃 רצים אליו עם החפץ — המסירה אוטומטית!',
+          IS_TOUCH ? '🕹️ ג׳ויסטיק משמאל לתנועה, 🖐️ כפתור פעולה מימין.' : '⌨️ חיצים / WASD לתנועה, Space ליד דלת.',
+        ],
+      },
+      {
+        art: '🎒🏠👑', title: 'משיגים חפצים',
+        lines: [
+          '🎒 בתיק נכנסים עד 3 חפצים (כבדים מאטים אותך).',
+          '🏠 בבית שלך (שתבחר ברחוב): חלב, ביצים, מברג.',
+          '👑 אצל טולדו (למעלה משמאל) יש הכל — אבל קודם קפה של 3 שניות. ⭐ טובה מדלגת.',
+        ],
+      },
+      {
+        art: '🏃🛺🔥', title: 'מהר, לפני השכנים!',
+        lines: [
+          '🏃 שכנים מתחרים רצים לאותו בית — תקדים אותם.',
+          '🛺 קלנועיות, טרקטורים, פרות ו🍿 במבה מפילים לך את החפצים.',
+          '🔥 מסירות ברצף = קומבו עד x4, ובחצי הדקה האחרונה — נקודות כפולות!',
+        ],
+      },
+    ];
+
+    function Wizard({ onClose }) {
+      const [i, setI] = useState(0);
+      const st = WIZARD_STEPS[i];
+      const last = i === WIZARD_STEPS.length - 1;
+      return (
+        <div className="absolute inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-3">
+          <div className="compact-pad bg-slate-900 border-2 border-emerald-500 rounded-3xl p-5 max-w-md w-full shadow-2xl text-center relative">
+            <button onClick={() => { sound.click(); onClose(); }} className="absolute top-2 left-3 text-xs text-slate-400 underline hover:text-white">דלג ⏭</button>
+            <div className="text-xs text-slate-500 mb-1">שלב {i + 1} מתוך {WIZARD_STEPS.length}</div>
+            <div className="text-4xl leading-none mb-1">{st.art}</div>
+            <h2 className="text-xl sm:text-2xl font-black text-emerald-400 mb-2">{st.title}</h2>
+            <ul className="text-right text-[13px] sm:text-sm text-slate-200 space-y-1 mb-3">
+              {st.lines.map(l => <li key={l}>{l}</li>)}
+            </ul>
+            <div className="flex items-center justify-between">
+              <div className="flex gap-1.5" style={{ direction: 'rtl' }}>
+                {WIZARD_STEPS.map((_, k) => <span key={k} className={`w-2.5 h-2.5 rounded-full ${k === i ? 'bg-emerald-400' : 'bg-slate-600'}`} />)}
+              </div>
+              <div className="flex gap-2">
+                {i > 0 && <button onClick={() => { sound.click(); setI(i - 1); }} className="px-4 py-2 rounded-xl bg-slate-800 text-sm font-bold">→ חזרה</button>}
+                <button onClick={() => { sound.click(); last ? onClose() : setI(i + 1); }}
+                  className="px-5 py-2 rounded-xl bg-emerald-500 text-slate-950 text-sm font-black">{last ? 'יאללה! 🚀' : 'הבא ←'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- Character customizer ----------
+    function OptBtn({ on, onClick, children, className = '' }) {
+      return (
+        <button onClick={() => { sound.click(); onClick(); }}
+          className={`rounded-lg text-xs font-bold border-2 transition ${on ? 'border-emerald-400 bg-emerald-900/60 text-white' : 'border-slate-700 bg-slate-800 text-slate-300'} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+    function Swatch({ color, on, onClick }) {
+      return <button onClick={() => { sound.click(); onClick(); }} className={`w-7 h-7 rounded-full border-2 ${on ? 'border-emerald-400 ring-2 ring-emerald-400/50 scale-110' : 'border-slate-600'}`} style={{ background: color }} />;
+    }
+    function Row({ label, children }) {
+      return (
+        <div className="flex items-center gap-2">
+          <span className="w-16 shrink-0 text-[11px] text-slate-400 font-bold">{label}</span>
+          <div className="flex flex-wrap gap-1.5">{children}</div>
+        </div>
+      );
+    }
+
+    function Customizer({ onClose }) {
+      const [p, setP] = useState(() => JSON.parse(JSON.stringify(store.s.profile)));
+      const [nameTouched, setNameTouched] = useState(!!ls.get('cypress_profile', null));
+      const look = p.look;
+      const setLook = (k, v) => setP(prev => ({
+        ...prev, look: { ...prev.look, [k]: v },
+        name: k === 'gender' && !nameTouched ? randomName(v) : prev.name,
+      }));
+      const save = () => {
+        const prof = { ...p, name: (p.name || '').trim().slice(0, 16) || randomName(look.gender) };
+        ls.set('cypress_profile', prof);
+        store.set({ profile: prof });
+        refreshPlayerTexture();
+      };
+      return (
+        <div className="absolute inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-2 overflow-y-auto">
+          <div className="compact-pad bg-slate-900 border-2 border-sky-500 rounded-3xl p-4 max-w-2xl w-full shadow-2xl my-auto">
+            <h2 className="text-lg sm:text-xl font-black text-sky-300 text-center mb-2">🎨 מי אתה ברחוב הברוש?</h2>
+            <div className="flex gap-3">
+              <div className="w-32 sm:w-40 shrink-0 flex flex-col items-center gap-1.5">
+                <div className="bg-gradient-to-b from-sky-900/60 to-emerald-900/60 rounded-2xl p-2 border border-slate-700"><Avatar look={look} size={80} /></div>
+                <input value={p.name} maxLength={16}
+                  onChange={e => { setNameTouched(true); setP({ ...p, name: e.target.value }); }}
+                  style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-sm text-center font-bold text-white focus:border-sky-400 outline-none" />
+                <button onClick={() => { sound.click(); setNameTouched(false); setP({ ...p, name: randomName(look.gender) }); }}
+                  className="text-[11px] bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 font-bold">🎲 שם אקראי</button>
+              </div>
+              <div className="flex-1 space-y-1.5 min-w-0">
+                <Row label="מין">{LOOK.gender.map(g => <OptBtn key={g.id} on={look.gender === g.id} onClick={() => setLook('gender', g.id)} className="px-3 py-1">{g.label}</OptBtn>)}</Row>
+                <Row label="תספורת">{LOOK.hair.map(h => <OptBtn key={h.id} on={look.hair === h.id} onClick={() => setLook('hair', h.id)} className="px-2.5 py-1">{h.label}</OptBtn>)}</Row>
+                <Row label="צבע שיער">{LOOK.hairColor.map(c => <Swatch key={c} color={c} on={look.hairColor === c} onClick={() => setLook('hairColor', c)} />)}</Row>
+                <Row label="גוון עור">{LOOK.skin.map(c => <Swatch key={c} color={c} on={look.skin === c} onClick={() => setLook('skin', c)} />)}</Row>
+                <Row label="בגדים">{LOOK.outfit.map(o => (
+                  <OptBtn key={o.id} on={look.outfit === o.id} onClick={() => setLook('outfit', o.id)} className="p-1 flex flex-col items-center w-12">
+                    <span className="w-6 h-6 rounded overflow-hidden flex flex-col border border-black/30">
+                      <span className="flex-1" style={{ background: o.shirt }} /><span className="flex-1" style={{ background: o.bottom }} />
+                    </span>
+                    <span className="text-[8px] leading-tight mt-0.5">{o.label}</span>
+                  </OptBtn>
+                ))}</Row>
+                <Row label="כובע">{LOOK.hat.map(h => <OptBtn key={h.id} on={look.hat === h.id} onClick={() => setLook('hat', h.id)} className="px-2.5 py-1">{h.label}</OptBtn>)}</Row>
+              </div>
+            </div>
+            <div className="flex justify-center gap-2 mt-3">
+              <button onClick={() => { sound.click(); save(); store.s.profile.home ? onClose() : store.set({ overlay: 'pickHouse' }); }} className="px-5 py-2 rounded-xl bg-slate-700 font-bold text-sm">שמור ✔</button>
+              <button onClick={() => { save(); Game.start(); }} className="px-6 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm">שמור ושחק 🚀</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- Leaderboard ----------
+    function BoardList({ rows, max = 20, myPid, nowAt }) {
+      if (!rows.length) return <div className="text-slate-400 text-xs py-4 text-center">עוד אין תוצאות — תהיה הראשון! 🥇</div>;
+      return (
+        <ol className="space-y-1">
+          {rows.slice(0, max).map((r, i) => {
+            const now = r.pid === myPid && r.at === nowAt;
+            const mine = r.pid === myPid;
+            return (
+              <li key={i} className={`flex items-center gap-2 rounded-xl px-2 py-0.5 text-sm ${now ? 'bg-emerald-600/40 border border-emerald-400' : mine ? 'bg-sky-900/40' : 'bg-slate-800/60'}`}>
+                <span className="w-6 text-center font-black text-slate-300">{['🥇', '🥈', '🥉'][i] || i + 1}</span>
+                <Avatar look={r.look} size={22} />
+                <span className="flex-1 truncate text-right font-bold">{r.name}</span>
+                {r.combo > 1 && <span className="text-[10px] text-pink-300">x{r.combo}🔥</span>}
+                <span className="font-black text-amber-300 w-12 text-left">{r.score}</span>
+              </li>
+            );
+          })}
+        </ol>
+      );
+    }
+
+    function BoardNote({ board }) {
+      if (board.status === 'loading') return <div className="text-[11px] text-slate-400 text-center mt-1">טוען… ⏳</div>;
+      if (board.status === 'error') return <div className="text-[11px] text-amber-300 text-center mt-1">⚠️ אין חיבור לטבלה המשותפת — מוצגים שיאים מהמכשיר הזה</div>;
+      if (board.local) return <div className="text-[11px] text-slate-500 text-center mt-1">📱 שיאים מהמכשיר הזה</div>;
+      return <div className="text-[11px] text-slate-500 text-center mt-1">🌍 כל השחקנים</div>;
+    }
+
+    function LeaderboardModal({ onClose }) {
+      const s = useSyncExternalStore(store.sub, store.get);
+      useEffect(() => { Board.refresh(); }, []);
+      return (
+        <div className="absolute inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-2">
+          <div className="compact-pad bg-slate-900 border-2 border-amber-500 rounded-3xl p-4 max-w-md w-full shadow-2xl flex flex-col max-h-full">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg sm:text-xl font-black text-amber-400">🏆 אלופי רחוב הברוש</h2>
+              <button onClick={() => { sound.click(); onClose(); }} className="text-slate-300 text-xl px-2">✕</button>
+            </div>
+            <div className="overflow-y-auto custom-scrollbar min-h-0 flex-1 pl-1">
+              <BoardList rows={s.board.rows} myPid={s.profile.pid} nowAt={s.submit?.at} />
+            </div>
+            <BoardNote board={s.board} />
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- App ----------
     function App() {
       const s = useSyncExternalStore(store.sub, store.get);
       const [scorePop, setScorePop] = useState(0);
 
-      // Create the Phaser game once: the street runs behind the start screen as an "attract mode"
+      // Phaser fills the area between the top bar and the bottom menu — no HUD is drawn over the street
       useEffect(() => {
         if (window.__game) return;
         window.__game = new Phaser.Game({
           type: Phaser.AUTO,
           parent: 'phaser-container',
-          width: W, height: H,
-          backgroundColor: '#1a3a17',
+          width: W, height: VIEW_H,
+          backgroundColor: '#3f7a34',
           scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
           physics: { default: 'arcade', arcade: { debug: false } },
           scene: [MainScene],
         });
       }, []);
 
-      // Toast auto-dismiss (old toasts never disappeared)
       useEffect(() => {
         if (!s.toast) return;
-        const id = setTimeout(() => store.set({ toast: null }), 2800);
+        const id = setTimeout(() => store.set({ toast: null }), 3200);
         return () => clearTimeout(id);
       }, [s.toast]);
 
       useEffect(() => { setScorePop(k => k + 1); }, [s.score]);
 
       const toggleSound = () => { sound.muted = !sound.muted; store.set({ muted: sound.muted }); };
+      const setOverlay = (o) => store.set({ overlay: o });
+      const closeWizard = () => { ls.set('cypress_onboarded', true); setOverlay(ls.get('cypress_profile', null) ? null : 'custom'); };
       const playing = s.phase === 'PLAYING' || s.phase === 'TOLEDO';
       const low = s.timeLeft <= 10;
+      const best = ls.get('cypress_best', 0);
       const actionLabel = { toledo: ['👑', 'טולדו'], home: ['🏠', 'הבית'], request: ['❓', 'מה צריך?'] }[s.near] || ['🖐️', 'פעולה'];
+      const keyHint = IS_TOUCH ? 'לחץ 🖐️' : 'לחץ Space';
+      const context = s.near === 'toledo' ? `👑 אתה ליד טולדו — ${keyHint}`
+        : s.near === 'home' ? `🏠 אתה בבית — ${keyHint} לחפץ בסיסי`
+        : s.inventory.length >= 3 ? '🎒 התיק מלא — ✕ לזריקת חפץ'
+        : IS_TOUCH ? '' : '⌨️ חיצים / WASD · Space ליד דלת';
+      const nowIdx = s.board.rows.findIndex(r => r.pid === s.profile.pid && r.at === s.submit?.at);
 
       return (
-        <div className="relative w-full h-full flex flex-col justify-between overflow-hidden"
+        <div className="relative w-full h-full flex flex-col overflow-hidden"
           onPointerUpCapture={() => {
             // pointerup is a valid "user activation" for touch; re-enter fullscreen if the player swiped out of it
             if (IS_TOUCH && store.s.phase === 'PLAYING') requestFullScreenMode();
           }}>
 
-          {/* TOP HUD */}
-          <header className="safe-x absolute top-0 left-0 right-0 z-30 bg-slate-950/70 backdrop-blur-md border-b border-white/10 py-1.5 flex justify-between items-center text-xs sm:text-sm">
+          {/* ===== TOP BAR ===== */}
+          <header className="safe-x shrink-0 h-10 sm:h-11 z-30 bg-slate-950 border-b border-white/10 flex justify-between items-center text-xs sm:text-sm">
             <div className="flex items-center gap-2 sm:gap-3">
               <span key={scorePop} className="pop font-black text-amber-400 text-sm sm:text-lg">🏆 {s.score}</span>
               <span className="font-bold text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-full">⭐ {s.favors}</span>
               {s.combo > 1 && <span key={'c' + s.combo} className="pop font-black text-pink-400">x{s.combo} 🔥</span>}
               {s.rush && playing && <span className="font-black text-orange-400 animate-pulse">נקודות x2!</span>}
             </div>
-
-            <div className={`font-mono text-base sm:text-xl font-black ${low ? 'text-red-400 animate-pulse' : s.rush ? 'text-orange-400' : 'text-emerald-400'}`}>
+            <div className={`font-mono text-base sm:text-xl font-black ${low && playing ? 'text-red-400 animate-pulse' : s.rush ? 'text-orange-400' : 'text-emerald-400'}`}>
               ⏱️ {Math.floor(s.timeLeft / 60)}:{(s.timeLeft % 60).toString().padStart(2, '0')}
             </div>
-
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="hidden min-[700px]:flex items-center gap-1 text-slate-300 font-bold max-w-[130px]">
+                <Avatar look={s.profile.look} size={18} /><span className="truncate">{s.profile.name}</span>
+              </span>
               <button onClick={toggleSound} className="p-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-lg">{s.muted ? '🔇' : '🔊'}</button>
               {CAN_FULLSCREEN && !IS_STANDALONE && !s.fs && (
                 <button onClick={requestFullScreenMode} className={`p-1.5 rounded-lg ${IS_TOUCH ? 'bg-amber-500 text-slate-950 animate-pulse' : 'bg-slate-800/80 hover:bg-slate-700'}`} title="מסך מלא">⛶</button>
@@ -1119,70 +1544,76 @@
             </div>
           </header>
 
-          {/* TOAST */}
-          {s.toast && (
-            <div key={s.toast.id}
-              className={`toast absolute top-12 left-1/2 z-40 border-2 text-slate-50 px-4 py-2 rounded-2xl text-xs sm:text-sm font-semibold shadow-2xl max-w-md text-center leading-snug ${TOAST_STYLES[s.toast.kind]}`}
-              style={{ transform: 'translateX(-50%)' }}>
-              {s.toast.msg}
-            </div>
-          )}
+          {/* ===== STREET ===== */}
+          <main className="relative flex-1 min-h-0">
+            <div id="phaser-container" className="absolute inset-0" style={{ direction: 'ltr', background: '#3f7a34' }}></div>
 
-          {/* PHASER CANVAS */}
-          <div id="phaser-container" className="w-full h-full flex-1" style={{ direction: "ltr", background: "#3f7a34" }}></div>
 
-          {/* INVENTORY ("הבית שלך") — compact pill at bottom center */}
-          {playing && (
-            <footer className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 bg-slate-950/75 backdrop-blur-md border border-white/10 rounded-2xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-2xl">
-              <span className="font-bold text-slate-300 whitespace-nowrap">🎒</span>
+            {/* Touch controls sit in the empty space beside the canvas on landscape phones */}
+            {IS_TOUCH && s.phase === 'PLAYING' && (
+              <div className="absolute inset-0 pointer-events-none z-20 flex justify-between items-end"
+                style={{ padding: '0 max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left))', direction: 'ltr' }}>
+                <Joystick />
+                <button onPointerDown={(e) => { e.preventDefault(); Game.action(); }}
+                  className={`action-btn pointer-events-auto w-20 h-20 text-slate-950 font-black rounded-full shadow-2xl flex flex-col items-center justify-center border-4 transition ${s.near === 'toledo' ? 'bg-amber-400 border-amber-200 scale-110' : s.near === 'home' ? 'bg-sky-400 border-sky-200 scale-110' : 'bg-emerald-500/85 border-emerald-300/70'}`}>
+                  <span className="text-2xl leading-none">{actionLabel[0]}</span>
+                  <span className="text-[10px]">{actionLabel[1]}</span>
+                </button>
+              </div>
+            )}
+          </main>
+
+          {/* ===== BOTTOM MENU: the bag ===== */}
+          <footer className="safe-x shrink-0 h-14 z-30 bg-slate-950 border-t border-white/10 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-black text-slate-300 text-xs whitespace-nowrap">🎒 התיק</span>
               {[0, 1, 2].map(i => {
                 const item = s.inventory[i];
-                return (
-                  <div key={i} className={`relative w-11 h-11 rounded-xl flex items-center justify-center text-2xl border-2 ${item ? 'bg-slate-800 border-slate-500' : 'bg-slate-900/60 border-dashed border-slate-700'}`}
-                    title={item?.name}>
-                    {item?.icon}
-                    {item?.weight > 1 && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-[8px] leading-none bg-amber-600 text-white rounded px-1 py-0.5">כבד</span>}
-                    {item && (
-                      <button onClick={() => Game.drop(i)}
-                        className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center shadow">✕</button>
-                    )}
+                return item ? (
+                  <div key={i} className="h-10 flex items-center gap-1 rounded-xl bg-slate-800 border-2 border-slate-500 pr-2 pl-1 shadow">
+                    <span className="text-xl leading-none">{item.icon}</span>
+                    <span className="hidden min-[700px]:inline text-[11px] font-bold text-slate-100 whitespace-nowrap">{item.name}</span>
+                    {item.weight > 1 && <span className="text-[9px] bg-amber-600 text-white rounded px-1">כבד</span>}
+                    <button onClick={() => Game.drop(i)} className="w-6 h-6 rounded-full bg-red-500/90 text-white text-[11px] font-black" title="זרוק">✕</button>
                   </div>
+                ) : (
+                  <div key={i} className="h-10 w-10 rounded-xl bg-slate-900 border-2 border-dashed border-slate-700" />
                 );
               })}
-              {!IS_TOUCH && <span className="text-[11px] text-slate-400 mr-2 whitespace-nowrap">חיצים/WASD · Space ליד דלת</span>}
-            </footer>
-          )}
-
-          {/* TOUCH CONTROLS — old version used `sm:hidden`, which hid them on almost every phone in landscape */}
-          {IS_TOUCH && s.phase === 'PLAYING' && (
-            <div className="absolute inset-0 pointer-events-none z-20 flex justify-between items-end"
-              style={{ padding: '0 max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left))', direction: 'ltr' }}>
-              <Joystick />
-              <button onPointerDown={(e) => { e.preventDefault(); Game.action(); }}
-                className={`pointer-events-auto w-20 h-20 text-slate-950 font-black rounded-full shadow-2xl flex flex-col items-center justify-center border-4 transition ${s.near === 'toledo' ? 'bg-amber-400 border-amber-200 scale-110' : s.near === 'home' ? 'bg-sky-400 border-sky-200 scale-110' : 'bg-emerald-500/80 border-emerald-300/70'}`}>
-                <span className="text-2xl leading-none">{actionLabel[0]}</span>
-                <span className="text-[10px]">{actionLabel[1]}</span>
-              </button>
             </div>
-          )}
-
-          {/* START SCREEN — street keeps animating behind it */}
-          {s.phase === 'START' && (
-            <div className="absolute inset-0 bg-slate-950/75 flex flex-col items-center p-3 text-center z-40 overflow-y-auto [&>*:first-child]:mt-auto [&>*:last-child]:mb-auto">
-              <h1 className="start-title text-4xl sm:text-6xl font-black text-emerald-400 mb-1 drop-shadow-lg">רחוב הברוש 🌳</h1>
-              <p className="text-xs sm:text-sm text-slate-200 max-w-md mb-3">קיבוץ דפנה · 3 דקות · כמה שכנים תספיק לעזור?</p>
-
-              <div className="start-card bg-slate-900/90 p-3 sm:p-4 rounded-2xl mb-3 text-right text-xs text-slate-300 space-y-1.5 border border-slate-700 w-full max-w-sm shadow-xl">
-                <p>🏠 <b>רוץ לבית הזוהר</b> עם החפץ שהוא צריך — המסירה אוטומטית.</p>
-                <p>🎒 <b>עד 3 חפצים.</b> בסיסיים (🥛🥚🪛) בבית שלך, הכל אצל <b className="text-amber-300">טולדו 👑</b>.</p>
-                <p>🏃 <b>שכנים מתחרים</b> יוצאים לדרך — תקדים אותם! מסירות ברצף = קומבו 🔥</p>
-                <p>🛺 <b>זהירות בכביש:</b> קלנועיות, טרקטורים, פרות ובמבה על הכביש!</p>
+            {/* Messages live here (not over the street) */}
+            {s.toast ? (
+              <div key={s.toast.id}
+                className={`toast-in min-w-0 max-w-[55%] border-2 text-slate-50 px-3 py-1 rounded-xl text-[11px] sm:text-xs font-semibold leading-snug line-clamp-2 ${TOAST_STYLES[s.toast.kind]}`}>
+                {s.toast.msg}
               </div>
+            ) : (
+              <div className="text-[11px] text-slate-400 truncate">{playing ? context : ''}</div>
+            )}
+          </footer>
 
+          {/* ===== START SCREEN ===== */}
+          {s.phase === 'START' && !s.overlay && (
+            <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center p-3 text-center z-40 overflow-y-auto [&>*:first-child]:mt-auto [&>*:last-child]:mb-auto">
+              <h1 className="start-title text-4xl sm:text-6xl font-black text-emerald-400 mb-1 drop-shadow-lg">רחוב הברוש 🌳</h1>
+              <p className="text-xs sm:text-sm text-slate-300 mb-3">קיבוץ דפנה · 3 דקות · כמה שכנים תספיק לעזור?</p>
+              <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-700 rounded-2xl px-3 py-1.5 mb-3">
+                <Avatar look={s.profile.look} size={40} />
+                <div className="text-right">
+                  <div className="font-black text-white">{s.profile.name}</div>
+                  <div className="text-[11px] text-slate-400">🏠 {s.profile.home ? houseById(s.profile.home)?.who : 'עוד אין בית'} · השיא שלך: {best}</div>
+                </div>
+                <button onClick={() => { sound.click(); setOverlay('custom'); }} className="text-xs bg-sky-700 hover:bg-sky-600 rounded-xl px-3 py-1.5 font-bold">✏️ ערוך דמות</button>
+              </div>
               <button onClick={() => Game.start()}
-                className="start-btn bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl sm:text-2xl px-10 py-3 rounded-full shadow-2xl transition transform active:scale-95 animate-bounce">
+                className="start-btn bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl sm:text-2xl px-10 py-3 rounded-full shadow-2xl transition transform active:scale-95">
                 התחל משחק! 🚀
               </button>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => { sound.click(); setOverlay('board'); }} className="text-xs bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 font-bold">🏆 טבלת אלופים</button>
+                <button onClick={() => { sound.click(); setOverlay('pickHouse'); }} className="text-xs bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 font-bold">🏠 החלף בית</button>
+                <button onClick={() => { sound.click(); setOverlay('wizard'); }} className="text-xs bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 font-bold">❓ איך משחקים</button>
+              </div>
               {IS_TOUCH && !IS_STANDALONE && (
                 CAN_FULLSCREEN
                   ? <p className="start-hint text-[11px] text-slate-400 mt-3">📺 המשחק עובר למסך מלא (בלי שורת כתובת) כשלוחצים "התחל"</p>
@@ -1193,34 +1624,54 @@
             </div>
           )}
 
-          {/* GAME OVER */}
-          {s.phase === 'OVER' && s.final && (
-            <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center p-4 text-center z-40">
-              <h2 className="text-3xl sm:text-5xl font-black text-amber-400 mb-1">נגמר הזמן! ⏰</h2>
-              {s.final.isRecord && <div className="text-pink-400 font-black text-lg animate-bounce">🎉 שיא חדש!</div>}
-              <p className="text-4xl sm:text-6xl font-black text-emerald-400 my-1">{s.final.score}</p>
-              <p className="text-sm text-slate-300 mb-3">{rankFor(s.final.score)} · שיא: {s.final.best}</p>
-              <div className="grid grid-cols-4 gap-2 mb-4 text-xs">
-                {[['📦', 'מסירות', s.final.deliveries], ['🔥', 'קומבו', 'x' + s.final.bestCombo], ['😤', 'פספוסים', s.final.missed], ['💥', 'תאונות', s.final.hits]].map(([ic, lb, v]) => (
-                  <div key={lb} className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
-                    <div className="text-lg">{ic}</div><div className="font-black text-white">{v}</div><div className="text-slate-400">{lb}</div>
+          {/* ===== GAME OVER ===== */}
+          {s.phase === 'OVER' && s.final && !s.overlay && (
+            <div className="absolute inset-0 bg-slate-950/90 flex items-center justify-center p-3 z-40 overflow-y-auto">
+              <div className="flex flex-col sm:flex-row gap-4 items-center sm:items-stretch max-w-3xl w-full my-auto">
+                <div className="flex-1 flex flex-col items-center justify-center text-center">
+                  <h2 className="text-2xl sm:text-4xl font-black text-amber-400">נגמר הזמן! ⏰</h2>
+                  {s.final.isRecord && <div className="text-pink-400 font-black animate-bounce">🎉 שיא אישי חדש!</div>}
+                  <div className="flex items-center gap-2 my-1">
+                    <Avatar look={s.profile.look} size={40} />
+                    <p className="text-4xl sm:text-6xl font-black text-emerald-400">{s.final.score}</p>
                   </div>
-                ))}
+                  <p className="text-xs text-slate-300 mb-2">{rankFor(s.final.score)} · שיא: {s.final.best}</p>
+                  <div className="grid grid-cols-4 gap-1.5 mb-3 text-[11px]">
+                    {[['📦', 'מסירות', s.final.deliveries], ['🔥', 'קומבו', 'x' + s.final.bestCombo], ['😤', 'פספוסים', s.final.missed], ['💥', 'תאונות', s.final.hits]].map(([ic, lb, v]) => (
+                      <div key={lb} className="bg-slate-900 border border-slate-700 rounded-xl px-2 py-1">
+                        <div>{ic} <b className="text-white">{v}</b></div><div className="text-slate-400">{lb}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => Game.start()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg px-7 py-2.5 rounded-full shadow-2xl active:scale-95">שחק שוב 🔄</button>
+                    <button onClick={() => { sound.click(); setOverlay('custom'); }} className="bg-slate-800 border border-slate-600 text-sm font-bold px-4 rounded-full">✏️ דמות</button>
+                  </div>
+                </div>
+                <div className="w-full sm:w-72 bg-slate-900/90 border border-amber-500/50 rounded-2xl p-3 flex flex-col">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-black text-amber-400 text-sm">🏆 טבלת אלופים</span>
+                    <span className="text-[11px] text-slate-300">
+                      {s.submit?.status === 'sending' ? '📡 שולח…'
+                        : nowIdx >= 0 ? `אתה במקום ${nowIdx + 1}!`
+                        : s.submit?.status === 'error' ? '⚠️ לא נשלח'
+                        : s.final.score > 0 && s.board.status === 'ok' ? 'מחוץ לטופ 20' : ''}
+                    </span>
+                  </div>
+                  <BoardList rows={s.board.rows} max={5} myPid={s.profile.pid} nowAt={s.submit?.at} />
+                  <button onClick={() => { sound.click(); setOverlay('board'); }} className="text-[11px] text-sky-300 underline mt-1.5">לטבלה המלאה ←</button>
+                  <BoardNote board={s.board} />
+                </div>
               </div>
-              <button onClick={() => Game.start()}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg sm:text-xl px-8 py-3 rounded-full shadow-2xl active:scale-95">
-                שחק שוב 🔄
-              </button>
             </div>
           )}
 
-          {/* TOLEDO MODAL — the street keeps running behind it, so the small talk actually costs time */}
+          {/* ===== TOLEDO MODAL — the street keeps running behind it, so the small talk costs time ===== */}
           {s.phase === 'TOLEDO' && (
             <div className="absolute inset-0 bg-slate-950/55 flex items-center justify-center p-3 z-40">
-              <div className="bg-slate-900/95 border-2 border-amber-500 p-4 sm:p-5 rounded-3xl max-w-sm w-full shadow-2xl text-center">
+              <div className="compact-pad bg-slate-900/95 border-2 border-amber-500 p-4 sm:p-5 rounded-3xl max-w-sm w-full shadow-2xl text-center">
                 <h2 className="text-xl sm:text-2xl font-black text-amber-400">👑 אחוזת משפחת טולדו</h2>
                 <p className="text-[11px] text-slate-400 mb-2">יש להם הכל במחסן. הרחוב ממשיך לרוץ בזמן שאתה פה!</p>
-
                 {s.toledoWait > 0 ? (
                   <div className="py-3 space-y-2">
                     <p className="text-slate-200 text-sm animate-pulse">☕ טולדו מוזג קפה ומספר על הימים הראשונים בדפנה...</p>
@@ -1248,6 +1699,19 @@
               </div>
             </div>
           )}
+
+          {/* ===== PICK YOUR HOUSE (banner only — the street stays visible and tappable) ===== */}
+          {s.overlay === 'pickHouse' && (
+            <div className="safe-x absolute top-0 inset-x-0 h-10 sm:h-11 z-40 bg-sky-700 border-b-2 border-sky-300 flex items-center justify-center gap-3 shadow-2xl">
+              <span className="text-sm sm:text-base font-black text-white animate-pulse">🏠 איפה אתה גר? לחץ על הבית שלך ברחוב 👇</span>
+              {s.profile.home && <button onClick={() => { sound.click(); setOverlay(null); }} className="text-xs bg-sky-900 rounded-lg px-3 py-1 font-bold">ביטול</button>}
+            </div>
+          )}
+
+          {/* ===== OVERLAYS ===== */}
+          {s.overlay === 'wizard' && <Wizard onClose={closeWizard} />}
+          {s.overlay === 'custom' && <Customizer onClose={() => setOverlay(null)} />}
+          {s.overlay === 'board' && <LeaderboardModal onClose={() => setOverlay(null)} />}
         </div>
       );
     }
