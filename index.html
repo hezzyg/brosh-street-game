@@ -9,8 +9,8 @@
   <meta name="theme-color" content="#020617" />
   <!-- Real manifest file (a data: URI manifest can't be installed, so "Add to Home Screen" kept the address bar) -->
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" type="image/png" href="icon-192.png" />
-  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <title>רחוב הברוש - קיבוץ דפנה</title>
 
   <!-- Pinned versions: unpinned CDN URLs can silently jump a major version and break the game -->
@@ -43,14 +43,17 @@
       .start-btn { font-size: 18px !important; padding: 8px 32px !important; }
       .start-hint { margin-top: 6px !important; }
       .compact-pad { padding: 10px !important; }
+      .start-logo { width: 36px !important; height: 36px !important; }
     }
     .safe-x { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 
     /* Rotate-device overlay: phones/tablets in portrait only */
+    input { user-select: text; -webkit-user-select: text; }
     #rotate { display: none; }
     @media (orientation: portrait) and (pointer: coarse) {
       #rotate { display: flex; }
     }
+    body.typing #rotate { display: none !important; } /* a keyboard can make the viewport look "portrait" */
     @keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
     .tilt { animation: tilt 1.6s ease-in-out infinite alternate; }
   </style>
@@ -58,7 +61,10 @@
 <body class="bg-slate-950 text-white h-full w-full flex flex-col justify-between overflow-hidden select-none">
 
   <div id="root">
-    <div style="margin:auto;color:#34d399;font-weight:800;font-size:20px">טוען את רחוב הברוש... 🌳</div>
+    <div style="margin:auto;display:flex;flex-direction:column;align-items:center;gap:12px;color:#34d399;font-weight:800;font-size:20px">
+      <img src="logo.png" alt="" style="width:96px;height:96px;border-radius:22px;box-shadow:0 10px 30px #0008" />
+      טוען את רחוב הברוש...
+    </div>
   </div>
 
   <div id="rotate" style="position:fixed;inset:0;z-index:100;background:#020617;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#e2e8f0;text-align:center;padding:24px">
@@ -110,7 +116,7 @@
         score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS,
         inventory: [], toast: null, near: null, toledoWait: 0, rush: false, muted: false,
         stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, final: null,
-        profile: null, overlay: null, board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
+        profile: null, overlay: null, wanted: {}, intro: true, board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
       },
       subs: new Set(),
       get: () => store.s,
@@ -120,6 +126,8 @@
       },
       sub(f) { store.subs.add(f); return () => store.subs.delete(f); },
     };
+    // Words addressed to the player follow the gender they picked in the character editor
+    const G = (m, f) => (store.s.profile?.look?.gender === 'f' ? f : m);
     const toast = (msg, kind = 'info') => store.set({ toast: { msg, kind, id: Math.random() } });
     const addStat = (k, v = 1) => store.set(s => ({ stats: { ...s.stats, [k]: s.stats[k] + v } }));
     const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
@@ -376,6 +384,33 @@
       alert() { this.tone(330, 'square', 0.1, 0.05); this.tone(247, 'square', 0.14, 0.05, 0.12); }
       click() { this.tone(700, 'sine', 0.04, 0.08); }
       tick() { this.tone(1200, 'square', 0.03, 0.04); }
+      // ---- WhatsApp intro: original bouncy tune + chat sounds ----
+      introStart() {
+        this.init();
+        if (this.introTimer) return;
+        const n = (m) => 440 * Math.pow(2, (m - 69) / 12);
+        // C major "oom-pah" with a cheeky melody (MIDI notes, 0 = rest)
+        const mel = [72, 76, 79, 76, 81, 79, 76, 0, 77, 81, 79, 77, 76, 74, 72, 0, 74, 77, 81, 77, 79, 77, 76, 74, 76, 79, 84, 79, 84, 0, 83, 0];
+        const bass = [48, 43, 48, 43, 53, 48, 43, 43];
+        let step = 0;
+        const tick = () => {
+          if (!this.muted) {
+            const m = mel[step % mel.length];
+            if (m) { this.tone(n(m), 'triangle', 0.14, 0.07); this.tone(n(m + 12), 'sine', 0.06, 0.02); }
+            if (step % 2 === 0) this.tone(n(bass[(step / 2) % bass.length] + (step % 4 === 2 ? 7 : 0)), 'sine', 0.18, 0.09);
+            if (step % 4 === 2) this.noise(0.04, 0.05);
+          }
+          step++;
+          this.introTimer = setTimeout(tick, 170);
+        };
+        tick();
+      }
+      introStop() { clearTimeout(this.introTimer); this.introTimer = null; }
+      msgPop() { this.tone(988, 'sine', 0.06, 0.12); this.tone(1480, 'sine', 0.09, 0.1, 0.05); }
+      boing() { this.tone(180, 'sine', 0.35, 0.2, 0, 900); this.tone(900, 'sine', 0.3, 0.12, 0.3, 260); }
+      laugh() { [700, 560, 700, 520].forEach((f, i) => this.tone(f, 'square', 0.06, 0.035, i * 0.08)); }
+
+      match() { [784, 988, 1319].forEach((f, i) => this.tone(f, 'triangle', 0.16, 0.16, i * 0.07)); }
       newRequest() { this.tone(587.33, 'sine', 0.12, 0.12); this.tone(880, 'sine', 0.18, 0.14, 0.09); }
       gift() { [784, 988, 1175, 1568].forEach((f, i) => this.tone(f, 'sine', 0.12, 0.1, i * 0.05)); }
       rushStart() { [440, 554, 659, 880].forEach((f, i) => this.tone(f, 'square', 0.12, 0.06, i * 0.08)); }
@@ -407,15 +442,36 @@
 
     // ================= GAME DATA =================
     const ITEMS = {
+      // basics — always at your home
       milk:        { id: 'milk', name: 'חלב', icon: '🥛', weight: 1, points: 30, basic: true, ask: 'נגמר החלב לקפה!' },
       eggs:        { id: 'eggs', name: 'ביצים', icon: '🥚', weight: 1, points: 30, basic: true, ask: 'צריך ביצים לעוגה!' },
       screwdriver: { id: 'screwdriver', name: 'מברג', icon: '🪛', weight: 1, points: 40, basic: true, ask: 'למישהו יש מברג?' },
+      pasta:       { id: 'pasta', name: 'פסטה', icon: '🍝', weight: 1, points: 40, basic: true, ask: 'הילדים רוצים פסטה. שוב.' },
+      cucumber:    { id: 'cucumber', name: 'מלפפון', icon: '🥒', weight: 1, points: 30, basic: true, ask: 'סלט קיבוצי בלי מלפפון?!' },
+      // kitchen
+      cream:       { id: 'cream', name: 'שמנת לבישול', icon: '🍶', weight: 1, points: 50, ask: 'באמצע רוטב ואין שמנת 🙈' },
+      mayo:        { id: 'mayo', name: 'הלמניה', icon: '🧴', weight: 1, points: 50, ask: 'אין סנדוויץ׳ בלי הלמניה!' },
+      soy:         { id: 'soy', name: 'רוטב סויה', icon: '🥢', weight: 1, points: 50, ask: 'ערב סושי ואין סויה 😱' },
+      acamol:      { id: 'acamol', name: 'אקמול', icon: '💊', weight: 1, points: 60, ask: 'כאב ראש מהאסיפה הכללית 🤕' },
+      finjan:      { id: 'finjan', name: 'פינג׳אן', icon: '☕', weight: 1, points: 60, ask: 'באו אורחים, צריך קפה שחור!' },
+      watermelon:  { id: 'watermelon', name: 'אבטיח', icon: '🍉', weight: 2, points: 70, ask: 'אבטיח לבריכה!' },
+      // tools & stuff
       trimmer:     { id: 'trimmer', name: 'מזמרת גדר', icon: '✂️', weight: 2, points: 100, ask: 'הגדר השתלטה עליי!' },
       hammer:      { id: 'hammer', name: 'פטיש 5 קילו', icon: '🔨', weight: 2, points: 80, ask: 'צריך לתלות תמונה!' },
-      watermelon:  { id: 'watermelon', name: 'אבטיח', icon: '🍉', weight: 2, points: 70, ask: 'אבטיח לבריכה!' },
+      saw:         { id: 'saw', name: 'מסור', icon: '🪚', weight: 2, points: 100, ask: 'עץ נפל על הקלנועית!' },
+      printer:     { id: 'printer', name: 'מדפסת', icon: '🖨️', weight: 2, points: 120, ask: 'חייב להדפיס טופס לוועדה!' },
+      mangal:      { id: 'mangal', name: 'מנגל', icon: '🍖', weight: 2, points: 110, ask: 'יום העצמאות ואין מנגל!' },
+      bike:        { id: 'bike', name: 'אופניים של הקיבוץ', icon: '🚲', weight: 2, points: 90, ask: 'מישהו לקח לי את האופניים… שוב.' },
+      remote:      { id: 'remote', name: 'שלט של המזגן', icon: '❄️', weight: 1, points: 90, ask: '35 מעלות והשלט נעלם!' },
+      // fun & weird
+      matkot:      { id: 'matkot', name: 'מטקות', icon: '🏓', weight: 1, points: 70, ask: 'יוצאים לכנרת! 🏖️' },
+      tembel:      { id: 'tembel', name: 'כובע טמבל', icon: '👒', weight: 1, points: 70, ask: 'השמש של דפנה לא סולחת!' },
+      sandals:     { id: 'sandals', name: 'סנדלים תנ״כיות', icon: '🩴', weight: 1, points: 60, ask: 'נקרעה לי הרצועה!' },
+      shesh:       { id: 'shesh', name: 'לוח שש-בש', icon: '🎲', weight: 1, points: 80, ask: 'משחק חוזר נגד טולדו!' },
       guitar:      { id: 'guitar', name: 'גיטרה לקומזיץ', icon: '🎸', weight: 1, points: 90, ask: 'קומזיץ הערב!' },
-      sourdough:   { id: 'sourdough', name: 'מחמצת בת 10', icon: '🍞', weight: 1, points: 120, ask: 'המחמצת שלי מתה 😭' },
       seinfeld:    { id: 'seinfeld', name: 'קלטת סיינפלד', icon: '📼', weight: 1, points: 110, ask: 'ערב נוסטלגיה במועדון!' },
+      sourdough:   { id: 'sourdough', name: 'מחמצת בת 10', icon: '🍞', weight: 1, points: 120, ask: 'המחמצת שלי מתה 😭' },
+      key:         { id: 'key', name: 'מפתח לחדר האוכל', icon: '🔑', weight: 1, points: 130, ask: 'ננעלנו בחוץ, הקציצות מתקררות!' },
       flamingo:    { id: 'flamingo', name: 'פלמינגו מפלסטיק', icon: '🦩', weight: 1, points: 150, ask: 'הפלמינגו נעלם מהדשא!' },
       pokemon:     { id: 'pokemon', name: 'קלף פוקימון', icon: '🃏', weight: 1, points: 180, ask: 'הנכד בא לבקר!' },
     };
@@ -436,11 +492,11 @@
       spriteKey: id === 'toledo' ? 'house_toledo' : HOUSE_SKINS[(i + si * 3) % HOUSE_SKINS.length],
     })));
     const houseById = (id) => HOUSES_DATA.find(h => h.id === id);
-    const TOLEDO_JOKES = [
+    const TOLEDO_JOKES = () => [
       '👑 נחמד לחלום… אבל יש רק טולדו אחד ברחוב הזה!',
       '👑 טולדו? חחח. הם גרים שם מאז שקמה דפנה ב-1939.',
-      '👑 אחוזת טולדו לא להשכרה. נסה בית צנוע יותר 😅',
-      '👑 יש רק טולדו אחד ברחוב הזה — ואתה לא הוא.',
+      `👑 אחוזת טולדו לא להשכרה. ${G('נסה', 'נסי')} בית צנוע יותר 😅`,
+      `👑 יש רק טולדו אחד ברחוב הזה — ${G('ואתה לא הוא', 'ואת לא היא')}.`,
     ];
 
     const VEHICLES = [
@@ -450,7 +506,7 @@
       { key: 'cow', name: 'פרה בורחת', speed: 80 },
       { key: 'bamba', name: 'במבה שנשפכה', speed: 0, obstacle: true },
     ];
-    const RIVAL_NAMES = ['שמעון', 'רונית', 'אבנר', 'תמר', 'צביקה', 'אורנה'];
+    const RIVALS = [{ n: 'שמעון' }, { n: 'רונית', f: true }, { n: 'אבנר' }, { n: 'תמר', f: true }, { n: 'צביקה' }, { n: 'אורנה', f: true }];
 
     const hebText = (size, color = '#ffffff', extra = {}) => ({
       fontFamily: 'Rubik, sans-serif', fontSize: size + 'px', fontStyle: 'bold', color, rtl: true, ...extra,
@@ -496,6 +552,8 @@
           .setOrigin(0.5).setDepth(2900);
         this.player.body.setSize(30, 18).setOffset(13, 44);
         this.player.setCollideWorldBounds(true);
+        this.guide = this.add.text(0, 0, '➤', { fontSize: '38px', color: '#22c55e', stroke: '#052e16', strokeThickness: 5, padding: { x: 2, y: 2 } })
+          .setOrigin(0.5).setDepth(2950).setVisible(false);
         this.prompt = this.add.text(0, 0, '', hebText(12, '#fde047', { backgroundColor: '#0f172acc', padding: { x: 6, y: 3 } }))
           .setOrigin(0.5).setDepth(3000).setVisible(false);
 
@@ -536,7 +594,7 @@
           // Onboarding guarantee: first request matches a starting item, no rival, extra patience
           this.time.delayedCall(700, () => {
             this.spawnHouseRequest(data.firstItem, { noAI: true, duration: 32 });
-            toast(`👋 יש לך ${data.firstItem.icon} ${data.firstItem.name} — רוץ לבית הזוהר!`, 'good');
+            toast(`👋 יש לך ${data.firstItem.icon} ${data.firstItem.name} — ${G('רוץ', 'רוצי')} לבית הזוהר!`, 'good');
           });
           this.time.delayedCall(250, () => this.popText(W / 2, H / 2, 'יאללה! 🏃', '#34d399', 54));
         }
@@ -604,13 +662,16 @@
         const scoreBadge = this.add.text(0, -34, '+100', hebText(12, '#0f172a', { backgroundColor: '#facc15', padding: { x: 5, y: 2 }, rtl: false })).setOrigin(0.5);
         const barBg = this.add.rectangle(0, 33, 52, 7, 0x0f172a, 0.85).setStrokeStyle(1, 0xffffff, 0.6);
         const barFill = this.add.rectangle(-25, 33, 50, 5, 0x22c55e).setOrigin(0, 0.5);
-        const match = this.add.text(0, 48, '✔ יש לך!', hebText(12, '#ffffff', { backgroundColor: '#059669', padding: { x: 5, y: 2 } })).setOrigin(0.5).setVisible(false);
+        const glow = this.add.circle(0, 0, 36, 0x22c55e, 0.55).setVisible(false);
+        this.tweens.add({ targets: glow, scale: { from: 0.85, to: 1.35 }, alpha: { from: 0.7, to: 0 }, duration: 650, repeat: -1 });
+        const match = this.add.text(0, 50, '💚 יש לך!', hebText(14, '#ffffff', { backgroundColor: '#16a34a', padding: { x: 7, y: 3 }, stroke: '#052e16', strokeThickness: 2 })).setOrigin(0.5).setVisible(false);
+        this.tweens.add({ targets: match, y: 57, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
         const rival = this.add.text(28, -18, '🏃', { fontSize: '18px', padding: { x: 1, y: 3 } }).setOrigin(0.5).setVisible(false);
-        bubble.add([bubbleBg, itemIcon, scoreBadge, barBg, barFill, match, rival]);
+        bubble.add([glow, bubbleBg, itemIcon, scoreBadge, barBg, barFill, match, rival]);
         this.tweens.add({ targets: bubble, y: by - 5, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
 
         const h = {
-          ...data, sprite, label, aura, bubble, bubbleBg, itemIcon, scoreBadge, barFill, match, rival, bubbleY: by,
+          ...data, sprite, label, aura, bubble, glow, bubbleBg, itemIcon, scoreBadge, barFill, match, rival, bubbleY: by,
           doorX: data.x, doorY: data.side === 'N' ? DOOR_N : DOOR_S, currentRequest: null, isPlayerHome: false,
         };
         // Choosing your home: tap a house while the "pick your house" banner is up
@@ -637,7 +698,7 @@
           sound.fail(); buzz([30, 30, 30]);
           this.tweens.add({ targets: h.sprite, angle: { from: -4, to: 4 }, duration: 70, yoyo: true, repeat: 3, onComplete: () => h.sprite.setAngle(0) });
           this.speech(h, 'רק אחד! ☝️');
-          return toast(pick(TOLEDO_JOKES), 'gold');
+          return toast(pick(TOLEDO_JOKES()), 'gold');
         }
         Game.chooseHome(h.id);
       }
@@ -691,6 +752,7 @@
 
         this.updatePlayer(time, dt, phase);
         this.updateRequests(dt);
+        this.updateGuide(time);
         this.updateRivals(dt);
         this.updateGroundItems(time);
         if (phase === 'PLAYING') this.updateProximity();
@@ -749,6 +811,7 @@
 
       updateRequests(dt) {
         const inv = store.s.inventory;
+        const anyMatch = this.houses.some(h => h.currentRequest && inv.some(i => i.id === h.currentRequest.item.id));
         this.houses.forEach(house => {
           const req = house.currentRequest;
           if (!req) return;
@@ -758,9 +821,12 @@
           house.barFill.fillColor = pct > 0.5 ? 0x22c55e : pct > 0.25 ? 0xf59e0b : 0xef4444;
 
           const has = inv.some(i => i.id === req.item.id);
+          // "You have it!" — green glow, bouncing label, bigger bubble, green house aura; other requests fade back
           house.match.setVisible(has);
-          house.bubbleBg.setStrokeStyle(has ? 5 : 3, has ? 0x10b981 : (pct < 0.25 ? 0xef4444 : 0x3b82f6));
-          house.bubble.setScale(has ? 1.12 : 1);
+          house.glow.setVisible(has);
+          house.bubbleBg.setStrokeStyle(has ? 6 : 3, has ? 0x16a34a : (pct < 0.25 ? 0xef4444 : 0x3b82f6));
+          house.bubble.setScale(has ? 1.2 : 1).setAlpha(anyMatch && !has ? 0.55 : 1);
+          house.aura.setFillStyle(has ? 0x22c55e : 0x38bdf8, has ? 0.75 : 0.5);
           house.bubble.x = house.x + (pct < 0.25 ? (Math.random() - 0.5) * 4 : 0);
 
           if (req.patience < 75 && !req.aiDispatched && !req.noAI) {
@@ -769,6 +835,31 @@
           }
           if (req.patience <= 0) this.failRequest(house, `😤 ${house.who} התייאשה מלחכות ל${req.item.name}`);
         });
+      }
+
+      // Green arrow beside the player pointing at the nearest house that wants something you carry
+      updateGuide(time) {
+        const inv = store.s.inventory, p = this.player;
+        let best = null, bestD = Infinity;
+        const wanted = {};
+        this.houses.forEach(h => {
+          const r = h.currentRequest;
+          if (!r) return;
+          if (inv.some(i => i.id === r.item.id)) {
+            wanted[r.item.id] = wanted[r.item.id] || h.family;
+            const d = Phaser.Math.Distance.Between(p.x, p.y, h.doorX, h.doorY);
+            if (d < bestD) { bestD = d; best = h; }
+          }
+        });
+        const key = JSON.stringify(wanted);
+        if (key !== this.wantedKey) { this.wantedKey = key; store.set({ wanted }); }
+        const show = best && bestD > 110 && this.stun <= 0 && store.s.phase === 'PLAYING';
+        this.guide.setVisible(!!show);
+        if (show) {
+          const a = Phaser.Math.Angle.Between(p.x, p.y, best.doorX, best.doorY);
+          const r = 58 + Math.sin(time / 120) * 6;
+          this.guide.setPosition(p.x + Math.cos(a) * r, p.y - 8 + Math.sin(a) * r).setRotation(a).setAlpha(0.75 + Math.sin(time / 120) * 0.25);
+        }
       }
 
       updateRivals(dt) {
@@ -787,7 +878,7 @@
           this.physics.velocityFromRotation(angle, 115, ai.body.velocity);
           ai.setFlipX(ai.body.velocity.x < 0);
           if (Phaser.Math.Distance.Between(ai.x, ai.y, h.doorX, h.doorY) < 18) {
-            this.failRequest(h, `😱 ${ai.rivalName} הקדים/ה אותך ל${h.who}!`);
+            this.failRequest(h, `😱 ${ai.rival.n} ${ai.rival.f ? 'הקדימה' : 'הקדים'} אותך ל${h.who}!`);
             this.removeRival(ai, false);
           }
         });
@@ -801,7 +892,7 @@
           if (time < gi.readyAt || this.stun > 0) return true;
           if (Phaser.Math.Distance.Between(this.player.x, this.player.y + 10, gi.obj.x, gi.obj.y) < 34) {
             if (inv.length >= 3) {
-              if (time > this.fullHintAt) { toast('התיק מלא! זרוק חפץ (✕) כדי להרים.', 'bad'); this.fullHintAt = time + 3000; }
+              if (time > this.fullHintAt) { toast(`התיק מלא! ${G('זרוק', 'זרקי')} חפץ (✕) כדי להרים.`, 'bad'); this.fullHintAt = time + 3000; }
               return true;
             }
             this.addToInventory(gi.item, `הרמת מהרצפה: ${gi.item.icon} ${gi.item.name}`);
@@ -905,7 +996,10 @@
         this.tweens.add({ targets: house.bubble, scale: 1, duration: 350, ease: 'Back.out' });
         house.aura.setVisible(true);
         this.speech(house, item.ask);
-        sound.newRequest();
+        if (store.s.inventory.some(i => i.id === item.id)) {
+          sound.match();
+          toast(`💚 יש לך ${item.icon} ${item.name}! ${house.who} צריכה — ${G('רוץ', 'רוצי')}!`, 'good');
+        } else sound.newRequest();
       }
 
       speech(house, text) {
@@ -922,12 +1016,12 @@
         const ai = this.aiRunners.create(src.doorX, src.doorY, `ai_${Math.floor(Math.random() * 4)}`).setScale(0.8);
         ai.body.setSize(30, 18).setOffset(13, 44);
         ai.targetHouse = house; ai.req = house.currentRequest; ai.stun = 0;
-        ai.rivalName = pick(RIVAL_NAMES);
+        ai.rival = pick(RIVALS);
         ai.carry = this.add.text(ai.x, ai.y - 40, house.currentRequest.item.icon, { fontSize: '20px', padding: { x: 1, y: 3 } }).setOrigin(0.5);
         house.rival.setVisible(true);
         this.tweens.add({ targets: house.rival, scale: { from: 1.6, to: 1 }, duration: 300 });
         sound.alert();
-        toast(`⚠️ ${ai.rivalName} רץ/ה להביא ${house.currentRequest.item.icon} ל${house.who}!`, 'bad');
+        toast(`⚠️ ${ai.rival.n} ${ai.rival.f ? 'רצה' : 'רץ'} להביא ${house.currentRequest.item.icon} ל${house.who}!`, 'bad');
       }
 
       removeRival(ai, sulk) {
@@ -972,7 +1066,7 @@
         if (s.phase !== 'PLAYING' || this.stun > 0) return;
         const p = this.player;
         const h = this.houses.find(h => Phaser.Math.Distance.Between(p.x, p.y, h.doorX, h.doorY) < 64);
-        if (!h) { toast('🚶 גש לדלת של בית כדי לפעול', 'info'); return; }
+        if (!h) { toast(`🚶 ${G('גש', 'גשי')} לדלת של בית כדי לפעול`, 'info'); return; }
         sound.click();
         if (h.isToledo) return this.openToledo();
         if (h.isPlayerHome) return this.restockAtHome();
@@ -1065,12 +1159,14 @@
         store.set(st => ({ inventory: [...st.inventory, item] }));
         sound.pickup(); buzz(15);
         this.popText(this.player.x, this.player.y - 46, item.icon, '#ffffff', 26);
-        if (msg) toast(msg, 'good');
+        const waiting = this.houses.find(h => h.currentRequest?.item.id === item.id);
+        if (waiting) { sound.match(); toast(`${msg ? msg + ' · ' : ''}💚 ${waiting.who} מחכה לזה!`, 'good'); }
+        else if (msg) toast(msg, 'good');
       }
 
       restockAtHome() {
         const inv = store.s.inventory;
-        if (inv.length >= 3) return toast('התיק מלא! זרוק חפץ (✕) כדי לפנות מקום.', 'bad');
+        if (inv.length >= 3) return toast(`התיק מלא! ${G('זרוק', 'זרקי')} חפץ (✕) כדי לפנות מקום.`, 'bad');
         // Smart restock: grab a basic item someone is actually waiting for
         const wanted = this.houses.map(h => h.currentRequest?.item).filter(i => i && i.basic && !inv.some(x => x.id === i.id));
         const item = wanted[0] || pick(BASICS);
@@ -1289,18 +1385,19 @@
     }
 
     function rankFor(score) {
-      if (score < 300) return 'מתנדב/ת מתחיל/ה 🌱';
-      if (score < 900) return 'חבר/ת קיבוץ מן השורה 🚜';
-      if (score < 1800) return 'מזכיר/ת הקיבוץ 📋';
+      if (score < 300) return G('מתנדב מתחיל 🌱', 'מתנדבת מתחילה 🌱');
+      if (score < 900) return G('חבר קיבוץ מן השורה 🚜', 'חברת קיבוץ מן השורה 🚜');
+      if (score < 1800) return G('מזכיר הקיבוץ 📋', 'מזכירת הקיבוץ 📋');
       return 'אגדת רחוב הברוש 👑';
     }
 
     // ---------- Onboarding wizard (3 steps, skippable, remembered) ----------
-    const WIZARD_STEPS = [
+    const wizardSteps = () => [
       {
         art: '🏠💬✨', title: 'עוזרים לשכנים',
         lines: [
           '🏠 בית שזוהר מבקש חפץ: הבועה מראה מה צריך, כמה נקודות שווה, ופס סבלנות.',
+          '💚 כשיש לך את מה שמבקשים — הבית זוהר בירוק וחץ ירוק מראה לך לאן לרוץ.',
           '🏃 רצים אליו עם החפץ — המסירה אוטומטית!',
           IS_TOUCH ? '🕹️ ג׳ויסטיק משמאל לתנועה, 🖐️ כפתור פעולה מימין.' : '⌨️ חיצים / WASD לתנועה, Space ליד דלת.',
         ],
@@ -1309,14 +1406,14 @@
         art: '🎒🏠👑', title: 'משיגים חפצים',
         lines: [
           '🎒 בתיק נכנסים עד 3 חפצים (כבדים מאטים אותך).',
-          '🏠 בבית שלך (שתבחר ברחוב): חלב, ביצים, מברג.',
+          `🏠 בבית שלך (${G('שתבחר', 'שתבחרי')} ברחוב): חלב, ביצים, מברג, פסטה, מלפפון.`,
           '👑 אצל טולדו (למעלה משמאל) יש הכל — אבל קודם קפה של 3 שניות. ⭐ טובה מדלגת.',
         ],
       },
       {
         art: '🏃🛺🔥', title: 'מהר, לפני השכנים!',
         lines: [
-          '🏃 שכנים מתחרים רצים לאותו בית — תקדים אותם.',
+          `🏃 שכנים מתחרים רצים לאותו בית — ${G('תקדים', 'תקדימי')} אותם.`,
           '🛺 קלנועיות, טרקטורים, פרות ו🍿 במבה מפילים לך את החפצים.',
           '🔥 מסירות ברצף = קומבו עד x4, ובחצי הדקה האחרונה — נקודות כפולות!',
         ],
@@ -1325,6 +1422,7 @@
 
     function Wizard({ onClose }) {
       const [i, setI] = useState(0);
+      const WIZARD_STEPS = wizardSteps();
       const st = WIZARD_STEPS[i];
       const last = i === WIZARD_STEPS.length - 1;
       return (
@@ -1373,9 +1471,60 @@
       );
     }
 
+    // ---------- Name editor ----------
+    // Docked at the TOP of the screen so the on-screen keyboard (bottom half in landscape) never hides it,
+    // and while it is open the game stops listening to the keyboard (it used to swallow Space/W/A/S/D/arrows)
+    // and pauses rendering, so nothing re-lays out under the keyboard.
+    function NameEditor({ value, gender, inputRef, onChange, onDone }) {
+      const [ideas, setIdeas] = useState(() => Array.from({ length: 3 }, () => randomName(gender)));
+      useEffect(() => {
+        document.body.classList.add('typing');
+        const g = window.__game;
+        if (g) { g.input.keyboard.enabled = false; g.loop.sleep(); }
+        return () => {
+          document.body.classList.remove('typing');
+          if (g) { g.input.keyboard.enabled = true; g.loop.wake(); }
+        };
+      }, []);
+      return (
+        <div className="name-editor fixed inset-0 z-[60] bg-slate-950/95 flex flex-col items-center"
+          onPointerDown={(e) => { if (e.target === e.currentTarget) onDone(); }}>
+          <div className="w-full max-w-xl px-3" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
+            <div className="text-sky-300 font-black text-sm mb-1 text-center">✏️ איך קוראים לך ברחוב?</div>
+            <form onSubmit={(e) => { e.preventDefault(); onDone(); }} className="flex gap-2">
+              <input ref={inputRef} value={value} maxLength={16} dir="rtl"
+                onChange={(e) => onChange(e.target.value)}
+                enterKeyHint="done" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                className="name-input flex-1 min-w-0 bg-slate-800 border-2 border-sky-400 rounded-xl px-3 py-2 text-lg font-bold text-white outline-none" />
+              <button type="submit" className="shrink-0 px-4 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm">✔ אישור</button>
+            </form>
+            <div className="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
+              <span className="text-[11px] text-slate-400">או בחר מוכן:</span>
+              {ideas.map(n => (
+                <button key={n} onClick={() => { sound.click(); onChange(n); onDone(n); }}
+                  className="name-chip text-xs bg-slate-800 border border-slate-600 rounded-full px-3 py-1 font-bold">{n}</button>
+              ))}
+              <button onMouseDown={(e) => e.preventDefault()} onClick={() => { sound.click(); setIdeas(Array.from({ length: 3 }, () => randomName(gender))); }}
+                className="text-xs bg-slate-800 border border-slate-600 rounded-full px-2.5 py-1">🎲</button>
+              <span className="text-[10px] text-slate-500 mr-1">{value.length}/16</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function Customizer({ onClose }) {
       const [p, setP] = useState(() => JSON.parse(JSON.stringify(store.s.profile)));
       const [nameTouched, setNameTouched] = useState(!!ls.get('cypress_profile', null));
+      const [editingName, setEditingName] = useState(false);
+      const nameRef = useRef(null);
+      // Render the editor synchronously and focus inside the same tap — iOS only opens the keyboard that way
+      const openName = () => { ReactDOM.flushSync(() => setEditingName(true)); nameRef.current?.focus(); };
+      const doneName = (picked) => {
+        setEditingName(false);
+        setP(prev => ({ ...prev, name: ((typeof picked === 'string' ? picked : prev.name) || '').trim().slice(0, 16) || randomName(prev.look.gender) }));
+        nameRef.current?.blur();
+      };
       const look = p.look;
       const setLook = (k, v) => setP(prev => ({
         ...prev, look: { ...prev.look, [k]: v },
@@ -1390,14 +1539,13 @@
       return (
         <div className="absolute inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-2 overflow-y-auto">
           <div className="compact-pad bg-slate-900 border-2 border-sky-500 rounded-3xl p-4 max-w-2xl w-full shadow-2xl my-auto">
-            <h2 className="text-lg sm:text-xl font-black text-sky-300 text-center mb-2">🎨 מי אתה ברחוב הברוש?</h2>
+            <h2 className="text-lg sm:text-xl font-black text-sky-300 text-center mb-2">🎨 {look.gender === 'f' ? 'מי את' : 'מי אתה'} ברחוב הברוש?</h2>
             <div className="flex gap-3">
               <div className="w-32 sm:w-40 shrink-0 flex flex-col items-center gap-1.5">
                 <div className="bg-gradient-to-b from-sky-900/60 to-emerald-900/60 rounded-2xl p-2 border border-slate-700"><Avatar look={look} size={80} /></div>
-                <input value={p.name} maxLength={16}
-                  onChange={e => { setNameTouched(true); setP({ ...p, name: e.target.value }); }}
-                  style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-sm text-center font-bold text-white focus:border-sky-400 outline-none" />
+                <button onClick={openName} className="name-field w-full bg-slate-800 border border-slate-600 hover:border-sky-400 rounded-lg px-2 py-1 text-sm font-bold text-white flex items-center justify-center gap-1">
+                  <span className="truncate">{p.name}</span><span className="text-xs">✏️</span>
+                </button>
                 <button onClick={() => { sound.click(); setNameTouched(false); setP({ ...p, name: randomName(look.gender) }); }}
                   className="text-[11px] bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 font-bold">🎲 שם אקראי</button>
               </div>
@@ -1417,6 +1565,11 @@
                 <Row label="כובע">{LOOK.hat.map(h => <OptBtn key={h.id} on={look.hat === h.id} onClick={() => setLook('hat', h.id)} className="px-2.5 py-1">{h.label}</OptBtn>)}</Row>
               </div>
             </div>
+            {editingName && (
+              <NameEditor value={p.name} gender={look.gender} inputRef={nameRef}
+                onChange={(v) => { setNameTouched(true); setP(prev => ({ ...prev, name: v })); }}
+                onDone={doneName} />
+            )}
             <div className="flex justify-center gap-2 mt-3">
               <button onClick={() => { sound.click(); save(); store.s.profile.home ? onClose() : store.set({ overlay: 'pickHouse' }); }} className="px-5 py-2 rounded-xl bg-slate-700 font-bold text-sm">שמור ✔</button>
               <button onClick={() => { save(); Game.start(); }} className="px-6 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm">שמור ושחק 🚀</button>
@@ -1428,7 +1581,7 @@
 
     // ---------- Leaderboard ----------
     function BoardList({ rows, max = 20, myPid, nowAt }) {
-      if (!rows.length) return <div className="text-slate-400 text-xs py-4 text-center">עוד אין תוצאות — תהיה הראשון! 🥇</div>;
+      if (!rows.length) return <div className="text-slate-400 text-xs py-4 text-center">עוד אין תוצאות — {G('תהיה הראשון', 'תהיי הראשונה')}! 🥇</div>;
       return (
         <ol className="space-y-1">
           {rows.slice(0, max).map((r, i) => {
@@ -1474,6 +1627,176 @@
       );
     }
 
+    // ---------- WhatsApp group intro ("video") ----------
+    const P = (from, f, text, extra = {}) => ({ from, f, text, ...extra });
+    const INTRO = [
+      { time: [7, 58], msgs: [
+        P('נועה גרשוני', 1, 'בוקר טוב שכנים ☀️ למישהו יש שמנת לבישול? באמצע רוטב 🙈'),
+        P('איתי חכים', 0, 'יש לי! 🙋‍♂️'),
+        P('שולה ולק', 1, 'גם לי יש, שלחי מישהו'),
+        P('צביקה כהן', 0, 'לטולדו יש. תבקשי מהם 😏', { toledo: true }),
+        P('איתי חכים', 0, '😂😂😂', { laugh: true }),
+        P('שולה ולק', 1, '🤣🤣', { laugh: true }),
+        P('נועה גרשוני', 1, 'איתי אתה מלך 🙏❤️', { quote: ['איתי חכים', 'יש לי! 🙋‍♂️'] }),
+      ] },
+      { time: [10, 41], msgs: [
+        P('גלעד נג׳ר-סבג', 0, 'דחוף!! למישהו יש מסור? עץ נפל על הקלנועית 🌳🛺'),
+        P('מיכל שירי', 1, 'יש לי, של אבא שלי משנות ה-80 😅'),
+        P('עמרי לנגליב', 0, 'לי יש חשמלי 💪 בדרך'),
+        P('רותי פינטל-ינון', 1, 'טולדו בטוח מחזיקים כזה. אולי שלושה 👑', { toledo: true }),
+        P('מיכל שירי', 1, '😂😂', { laugh: true }),
+        P('עמרי לנגליב', 0, '🤣🤣🤣', { laugh: true }),
+        P('גלעד נג׳ר-סבג', 0, 'עמרי אלוף 🙏🙏', { quote: ['עמרי לנגליב', 'לי יש חשמלי 💪 בדרך'] }),
+      ] },
+      { time: [14, 12], msgs: [
+        P('ליאת אייל-שוורץ', 1, 'למישהו יש אקמול? הילדים חזרו מהגן 🤒'),
+        P('בועז ישראלי', 0, 'יש, משאיר לך על הדלת'),
+        P('דפנה לנגליב ג׳וניור', 1, 'גם לי יש 💊'),
+        P('יוסי ולק', 0, 'תשאלי את טולדו, יש להם בית מרקחת שלם', { toledo: true }),
+        P('בועז ישראלי', 0, '😂😂😂', { laugh: true }),
+        P('דפנה לנגליב ג׳וניור', 1, '🤣', { laugh: true }),
+        P('ליאת אייל-שוורץ', 1, 'בועז תודה ❤️🙏', { quote: ['בועז ישראלי', 'יש, משאיר לך על הדלת'] }),
+      ] },
+      { time: [19, 27], msgs: [
+        P('אורנה כהן', 1, 'שאלה מוזרה… למישהו יש פלמינגו מפלסטיק? אל תשאלו למה 🦩'),
+        P('שמוליק גרשוני', 0, '😳 דווקא יש'),
+        P('תמר שירי', 1, 'גם לי! מה זה הטרנד הזה?'),
+        P('נמרוד חכים', 0, 'לטולדו יש עשרה. ראיתי במחסן 👑', { toledo: true }),
+        P('שמוליק גרשוני', 0, '😂😂😂', { laugh: true }),
+        P('תמר שירי', 1, '🤣🤣🤣', { laugh: true }),
+        P('אורנה כהן', 1, 'שמוליק הצלת אותי 🦩❤️', { quote: ['שמוליק גרשוני', '😳 דווקא יש'] }),
+      ] },
+    ];
+    const WA_COLORS = ['#e542a3', '#1f7aec', '#d97706', '#7c3aed', '#059669', '#dc2626', '#0891b2', '#c026d3', '#65a30d'];
+    const waColor = (name) => WA_COLORS[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % WA_COLORS.length];
+    const hhmm = ([h, m], add) => { const t = h * 60 + m + add; return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+    const WA_WALLPAPER = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'><g fill='none' stroke='%23d5cbbd' stroke-width='1.6' opacity='.55'><circle cx='20' cy='22' r='7'/><path d='M60 14 l6 10 h-12z'/><rect x='92' y='16' width='12' height='9' rx='2'/><path d='M14 70 q8 -10 16 0 t16 0'/><circle cx='80' cy='66' r='4'/><path d='M100 92 l5 5 m0 -5 l-5 5'/><path d='M44 98 c0 -8 12 -8 12 0 c0 6 -12 12 -12 12 c0 0 -12 -6 -12 -12 c0 -8 12 -8 12 0z' transform='scale(.6) translate(30 60)'/></g></svg>`).replace(/%2523/g, '%23')}")`;
+
+    function WhatsAppIntro({ onDone }) {
+      const [stage, setStage] = useState('tap'); // tap → play → fade
+      const [msgs, setMsgs] = useState([]);
+      const [typing, setTyping] = useState(null);
+      const listRef = useRef(null);
+      const stopped = useRef(false);
+      const now = new Date();
+
+      useEffect(() => { const el = listRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); }, [msgs, typing]);
+      useEffect(() => () => { stopped.current = true; sound.introStop(); }, []);
+
+      const finish = () => {
+        if (stage === 'fade') return;
+        stopped.current = true; sound.introStop(); setTyping(null);
+        setStage('fade'); setTimeout(onDone, 900);
+      };
+      const play = async () => {
+        sound.init(); requestFullScreenMode(); setStage('play'); sound.introStart();
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        let id = 0;
+        for (const cyc of INTRO) {
+          let toledoId = null;
+          for (const [i, m] of cyc.msgs.entries()) {
+            if (stopped.current) return;
+            setTyping(m); await wait(m.laugh ? 150 : 340);
+            if (stopped.current) return;
+            const myId = ++id;
+            setTyping(null);
+            setMsgs(list => [...list, { ...m, id: myId, time: hhmm(cyc.time, Math.floor(i / 2)) }]);
+            if (m.toledo) { toledoId = myId; sound.boing(); }
+            else if (m.laugh) { sound.laugh(); const t = toledoId; setMsgs(list => list.map(x => x.id === t ? { ...x, react: (x.react || 0) + 1 } : x)); }
+            else sound.msgPop();
+            await wait(m.laugh ? 250 : 470);
+          }
+          await wait(350);
+        }
+        await wait(800);
+        if (!stopped.current) finish();
+      };
+
+      // Lock-screen notification: the tap also unlocks audio + fullscreen
+      if (stage === 'tap') {
+        return (
+          <div className="wa-intro fixed inset-0 z-[90] flex flex-col items-center justify-center p-4 text-white"
+            style={{ background: 'radial-gradient(circle at 30% 20%, #1e3a5f, #020617 70%)' }} onClick={play}>
+            <div className="text-5xl sm:text-6xl font-light tracking-wide">{now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div className="text-sm text-slate-300 mb-4">{now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+            <div className="w-full max-w-md bg-white/15 backdrop-blur-xl rounded-3xl p-3 flex gap-3 items-center shadow-2xl cursor-pointer animate-pulse">
+              <img src="logo.png" alt="" className="w-11 h-11 rounded-xl" />
+              <div className="flex-1 min-w-0 text-right">
+                <div className="flex justify-between text-xs text-slate-200"><b>רחוב הברוש 🌳 דפנה</b><span>עכשיו</span></div>
+                <div className="text-sm truncate">נועה גרשוני: בוקר טוב שכנים ☀️ למישהו יש שמנת…</div>
+                <div className="text-[11px] text-slate-300">28 הודעות חדשות</div>
+              </div>
+            </div>
+            <div className="mt-5 text-sm text-slate-200">👆 הקישו לפתיחת הקבוצה</div>
+            <button onClick={(e) => { e.stopPropagation(); sound.init(); finish(); }} className="absolute bottom-4 left-4 text-xs text-slate-400 underline">דלג ⏭</button>
+          </div>
+        );
+      }
+
+      const subtitle = typing ? `${typing.from.split(' ')[0]} ${typing.f ? 'מקלידה' : 'מקליד'}...` : 'טולדו, אייל-שוורץ, גרשוני, ולק, חכים, כהן, שירי ועוד 21';
+      return (
+        <div className={`wa-intro fixed inset-0 z-[90] flex flex-col transition-opacity duration-700 ${stage === 'fade' ? 'opacity-0' : 'opacity-100'}`}
+          style={{ background: '#efeae2', fontFamily: "'Segoe UI', Rubik, Helvetica, Arial, sans-serif" }}>
+          {/* header */}
+          <div className="safe-x shrink-0 h-14 flex items-center gap-3 text-white shadow" style={{ background: '#008069' }}>
+            <span className="text-xl">→</span>
+            <img src="logo.png" alt="" className="w-10 h-10 rounded-full object-cover" />
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-[15px] leading-tight">רחוב הברוש 🌳 דפנה</div>
+              <div className={`text-xs truncate ${typing ? 'text-emerald-100' : 'text-white/80'}`}>{subtitle}</div>
+            </div>
+            <span className="text-lg opacity-90">📹</span><span className="text-lg opacity-90">📞</span><span className="text-xl opacity-90">⋮</span>
+          </div>
+          {/* messages */}
+          <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-[8%] py-2 flex flex-col gap-1" style={{ backgroundImage: WA_WALLPAPER }}>
+            <div className="self-center text-[11px] bg-white/90 text-slate-500 rounded-lg px-3 py-1 shadow-sm my-1">היום</div>
+            <div className="self-center text-[11px] bg-amber-50 text-amber-900 rounded-lg px-3 py-1 shadow-sm mb-1 text-center max-w-md">🔒 ההודעות בקבוצת הרחוב לא מוצפנות מטולדו</div>
+            {msgs.map((m, k) => {
+              const first = k === 0 || msgs[k - 1].from !== m.from;
+              if (m.laugh) return (
+                <div key={m.id} className="wa-msg self-start flex flex-col items-start" style={{ animation: 'toastIn .2s ease-out' }}>
+                  {first && <span className="text-[12px] font-bold mr-1" style={{ color: waColor(m.from) }}>{m.from}</span>}
+                  <span className="text-4xl leading-tight">{m.text}</span>
+                  <span className="text-[10px] text-slate-500 mr-1">{m.time}</span>
+                </div>
+              );
+              return (
+                <div key={m.id} className={`wa-msg self-start max-w-[78%] sm:max-w-[60%] bg-white rounded-lg ${first ? 'rounded-tr-none mt-1' : ''} shadow-sm px-2 pt-1 pb-0.5 relative`}
+                  style={{ animation: 'toastIn .2s ease-out', marginBottom: m.react ? 14 : 0 }}>
+                  {first && <div className="text-[12.5px] font-bold" style={{ color: waColor(m.from) }}>{m.from}</div>}
+                  {m.quote && (
+                    <div className="rounded-md px-2 py-1 mb-1 text-[12px] bg-slate-100 border-r-4" style={{ borderColor: waColor(m.quote[0]) }}>
+                      <div className="font-bold" style={{ color: waColor(m.quote[0]) }}>{m.quote[0]}</div>
+                      <div className="text-slate-600 truncate">{m.quote[1]}</div>
+                    </div>
+                  )}
+                  <div className="text-[14.5px] text-[#111b21] leading-snug">
+                    {m.text}<span className="inline-block w-12" />
+                  </div>
+                  <span className="absolute bottom-0.5 left-2 text-[10.5px] text-slate-500">{m.time}</span>
+                  {m.react > 0 && (
+                    <span className="absolute -bottom-3.5 right-2 bg-white rounded-full shadow px-1.5 text-[12px] border border-slate-100">😂 {m.react}</span>
+                  )}
+                </div>
+              );
+            })}
+            {typing && (
+              <div className="self-start bg-white rounded-lg shadow-sm px-3 py-2 flex gap-1 items-center">
+                {[0, 1, 2].map(d => <span key={d} className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${d * 0.15}s` }} />)}
+              </div>
+            )}
+          </div>
+          {/* input bar */}
+          <div className="safe-x shrink-0 h-12 flex items-center gap-2" style={{ background: '#f0f2f5' }}>
+            <span className="text-xl">😊</span><span className="text-xl">📎</span>
+            <div className="flex-1 bg-white rounded-full h-8 px-4 flex items-center text-sm text-slate-400">הקלדת הודעה</div>
+            <span className="w-9 h-9 rounded-full flex items-center justify-center text-white" style={{ background: '#00a884' }}>🎤</span>
+          </div>
+          <button onClick={finish} className="absolute top-16 left-3 z-10 text-xs font-bold bg-black/55 text-white rounded-full px-3 py-1.5">דלג ⏭</button>
+        </div>
+      );
+    }
+
     // ---------- App ----------
     function App() {
       const s = useSyncExternalStore(store.sub, store.get);
@@ -1508,9 +1831,9 @@
       const low = s.timeLeft <= 10;
       const best = ls.get('cypress_best', 0);
       const actionLabel = { toledo: ['👑', 'טולדו'], home: ['🏠', 'הבית'], request: ['❓', 'מה צריך?'] }[s.near] || ['🖐️', 'פעולה'];
-      const keyHint = IS_TOUCH ? 'לחץ 🖐️' : 'לחץ Space';
-      const context = s.near === 'toledo' ? `👑 אתה ליד טולדו — ${keyHint}`
-        : s.near === 'home' ? `🏠 אתה בבית — ${keyHint} לחפץ בסיסי`
+      const keyHint = `${G('לחץ', 'לחצי')} ${IS_TOUCH ? '🖐️' : 'Space'}`;
+      const context = s.near === 'toledo' ? `👑 ${G('אתה', 'את')} ליד טולדו — ${keyHint}`
+        : s.near === 'home' ? `🏠 ${G('אתה', 'את')} בבית — ${keyHint} לחפץ בסיסי`
         : s.inventory.length >= 3 ? '🎒 התיק מלא — ✕ לזריקת חפץ'
         : IS_TOUCH ? '' : '⌨️ חיצים / WASD · Space ליד דלת';
       const nowIdx = s.board.rows.findIndex(r => r.pid === s.profile.pid && r.at === s.submit?.at);
@@ -1570,8 +1893,9 @@
               {[0, 1, 2].map(i => {
                 const item = s.inventory[i];
                 return item ? (
-                  <div key={i} className="h-10 flex items-center gap-1 rounded-xl bg-slate-800 border-2 border-slate-500 pr-2 pl-1 shadow">
-                    <span className="text-xl leading-none">{item.icon}</span>
+                  <div key={i} className={`h-10 flex items-center gap-1 rounded-xl border-2 pr-2 pl-1 shadow ${s.wanted[item.id] ? 'bg-emerald-800 border-emerald-300 shadow-emerald-500/50 shadow-lg' : 'bg-slate-800 border-slate-500'}`}>
+                    <span className={`text-xl leading-none ${s.wanted[item.id] ? 'animate-bounce' : ''}`}>{item.icon}</span>
+                    {s.wanted[item.id] && <span className="text-[10px] font-black text-emerald-200 whitespace-nowrap">💚 {s.wanted[item.id]}</span>}
                     <span className="hidden min-[700px]:inline text-[11px] font-bold text-slate-100 whitespace-nowrap">{item.name}</span>
                     {item.weight > 1 && <span className="text-[9px] bg-amber-600 text-white rounded px-1">כבד</span>}
                     <button onClick={() => Game.drop(i)} className="w-6 h-6 rounded-full bg-red-500/90 text-white text-[11px] font-black" title="זרוק">✕</button>
@@ -1595,8 +1919,10 @@
           {/* ===== START SCREEN ===== */}
           {s.phase === 'START' && !s.overlay && (
             <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center p-3 text-center z-40 overflow-y-auto [&>*:first-child]:mt-auto [&>*:last-child]:mb-auto">
-              <h1 className="start-title text-4xl sm:text-6xl font-black text-emerald-400 mb-1 drop-shadow-lg">רחוב הברוש 🌳</h1>
-              <p className="text-xs sm:text-sm text-slate-300 mb-3">קיבוץ דפנה · 3 דקות · כמה שכנים תספיק לעזור?</p>
+              <h1 className="start-title text-4xl sm:text-6xl font-black text-emerald-400 mb-1 drop-shadow-lg flex items-center gap-3">
+                <img src="logo.png" alt="" className="start-logo w-12 h-12 sm:w-16 sm:h-16 rounded-2xl shadow-lg" />רחוב הברוש
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300 mb-3">קיבוץ דפנה · 3 דקות · כמה שכנים {G('תספיק', 'תספיקי')} לעזור?</p>
               <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-700 rounded-2xl px-3 py-1.5 mb-3">
                 <Avatar look={s.profile.look} size={40} />
                 <div className="text-right">
@@ -1653,7 +1979,7 @@
                     <span className="font-black text-amber-400 text-sm">🏆 טבלת אלופים</span>
                     <span className="text-[11px] text-slate-300">
                       {s.submit?.status === 'sending' ? '📡 שולח…'
-                        : nowIdx >= 0 ? `אתה במקום ${nowIdx + 1}!`
+                        : nowIdx >= 0 ? `${G('אתה', 'את')} במקום ${nowIdx + 1}!`
                         : s.submit?.status === 'error' ? '⚠️ לא נשלח'
                         : s.final.score > 0 && s.board.status === 'ok' ? 'מחוץ לטופ 20' : ''}
                     </span>
@@ -1669,9 +1995,9 @@
           {/* ===== TOLEDO MODAL — the street keeps running behind it, so the small talk costs time ===== */}
           {s.phase === 'TOLEDO' && (
             <div className="absolute inset-0 bg-slate-950/55 flex items-center justify-center p-3 z-40">
-              <div className="compact-pad bg-slate-900/95 border-2 border-amber-500 p-4 sm:p-5 rounded-3xl max-w-sm w-full shadow-2xl text-center">
+              <div className="compact-pad bg-slate-900/95 border-2 border-amber-500 p-4 sm:p-5 rounded-3xl max-w-lg w-full shadow-2xl text-center">
                 <h2 className="text-xl sm:text-2xl font-black text-amber-400">👑 אחוזת משפחת טולדו</h2>
-                <p className="text-[11px] text-slate-400 mb-2">יש להם הכל במחסן. הרחוב ממשיך לרוץ בזמן שאתה פה!</p>
+                <p className="text-[11px] text-slate-400 mb-2">יש להם הכל במחסן. הרחוב ממשיך לרוץ בזמן {G('שאתה', 'שאת')} פה!</p>
                 {s.toledoWait > 0 ? (
                   <div className="py-3 space-y-2">
                     <p className="text-slate-200 text-sm animate-pulse">☕ טולדו מוזג קפה ומספר על הימים הראשונים בדפנה...</p>
@@ -1683,8 +2009,8 @@
                   </div>
                 ) : (
                   <div>
-                    <p className="text-xs text-slate-300 mb-2">בחר חפצים ({s.inventory.length}/3):</p>
-                    <div className="grid grid-cols-4 gap-1.5 max-h-48 overflow-y-auto p-1 custom-scrollbar">
+                    <p className="text-xs text-slate-300 mb-2">{G('בחר', 'בחרי')} חפצים ({s.inventory.length}/3):</p>
+                    <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-48 overflow-y-auto p-1 custom-scrollbar">
                       {ITEM_LIST.map(item => (
                         <button key={item.id} onClick={() => Game.pickToledo(item)}
                           className="bg-slate-800 border border-slate-700 hover:border-amber-500 p-1.5 rounded-xl flex flex-col items-center active:scale-95">
@@ -1703,12 +2029,13 @@
           {/* ===== PICK YOUR HOUSE (banner only — the street stays visible and tappable) ===== */}
           {s.overlay === 'pickHouse' && (
             <div className="safe-x absolute top-0 inset-x-0 h-10 sm:h-11 z-40 bg-sky-700 border-b-2 border-sky-300 flex items-center justify-center gap-3 shadow-2xl">
-              <span className="text-sm sm:text-base font-black text-white animate-pulse">🏠 איפה אתה גר? לחץ על הבית שלך ברחוב 👇</span>
+              <span className="text-sm sm:text-base font-black text-white animate-pulse">🏠 {G('איפה אתה גר? לחץ', 'איפה את גרה? לחצי')} על הבית שלך ברחוב 👇</span>
               {s.profile.home && <button onClick={() => { sound.click(); setOverlay(null); }} className="text-xs bg-sky-900 rounded-lg px-3 py-1 font-bold">ביטול</button>}
             </div>
           )}
 
           {/* ===== OVERLAYS ===== */}
+          {s.intro && <WhatsAppIntro onDone={() => store.set({ intro: false })} />}
           {s.overlay === 'wizard' && <Wizard onClose={closeWizard} />}
           {s.overlay === 'custom' && <Customizer onClose={() => setOverlay(null)} />}
           {s.overlay === 'board' && <LeaderboardModal onClose={() => setOverlay(null)} />}
