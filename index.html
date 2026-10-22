@@ -56,6 +56,9 @@
       .start-hint { margin-top: 6px !important; }
       .compact-pad { padding: 10px !important; }
       .start-logo { width: 36px !important; height: 36px !important; }
+      .splash-logo { width: 72px !important; height: 72px !important; margin-bottom: 6px !important; }
+      .splash-title { font-size: 32px !important; }
+      .splash-btn { font-size: 22px !important; padding: 10px 36px !important; }
     }
     .safe-x { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 
@@ -1239,7 +1242,7 @@
     const Game = {
       scene: () => window.__game?.scene?.getScene('MainScene'),
       async start() {
-        if (!store.s.profile.home) return store.set({ overlay: 'pickHouse' }); // pick your house first
+        if (!store.s.profile.home) return store.set({ overlay: 'pickHouse', pendingStart: true }); // pick your house first
         requestFullScreenMode();               // must run synchronously inside the tap
         sound.init(); sound.stopBGM(); sound.startBGM();
         store.set({ overlay: null });
@@ -1262,7 +1265,12 @@
         const h = this.scene()?.houses.find(x => x.id === id);
         if (h) this.scene().moveIntoHome(h);
         toast(`🏠 ברוכים הבאים הביתה! גרים עכשיו אצל ${houseById(id).who}`, 'good');
-        setTimeout(() => { if (store.s.overlay === 'pickHouse') store.set({ overlay: null }); }, 1500);
+        setTimeout(() => {
+          if (store.s.overlay !== 'pickHouse') return;
+          const go = store.s.pendingStart;
+          store.set({ overlay: null, pendingStart: false });
+          if (go) Game.start();
+        }, 1500);
       },
       action() { this.scene()?.handleAction(); },
       drop(idx) { sound.click(); this.scene()?.dropFromInventory(idx); },
@@ -1730,8 +1738,7 @@
     const WA_WALLPAPER = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'><g fill='none' stroke='%23d5cbbd' stroke-width='1.6' opacity='.55'><circle cx='20' cy='22' r='7'/><path d='M60 14 l6 10 h-12z'/><rect x='92' y='16' width='12' height='9' rx='2'/><path d='M14 70 q8 -10 16 0 t16 0'/><circle cx='80' cy='66' r='4'/><path d='M100 92 l5 5 m0 -5 l-5 5'/><path d='M44 98 c0 -8 12 -8 12 0 c0 6 -12 12 -12 12 c0 0 -12 -6 -12 -12 c0 -8 12 -8 12 0z' transform='scale(.6) translate(30 60)'/></g></svg>`).replace(/%2523/g, '%23')}")`;
 
     function WhatsAppIntro({ onDone }) {
-      const [stage, setStage] = useState('play'); // play → fade (starts by itself as the game loads)
-      const [soundOn, setSoundOn] = useState(false);
+      const [stage, setStage] = useState('splash'); // splash → play → fade
       const started = useRef(false);
       const [msgs, setMsgs] = useState([]);
       const [typing, setTyping] = useState(null);
@@ -1771,19 +1778,39 @@
         if (!stopped.current) finish();
       };
 
-      useEffect(() => { if (!started.current) { started.current = true; play(); } }, []);
-      // Browsers only allow sound (and fullscreen) after a tap — the first tap anywhere turns both on
-      const enableSound = () => {
-        if (soundOn) return;
-        sound.init(); requestFullScreenMode();
-        const check = () => setSoundOn(sound.ctx?.state === 'running');
-        check(); setTimeout(check, 150);
+      // The big start button is the tap that browsers require before sound and fullscreen
+      const begin = () => {
+        if (started.current) return;
+        started.current = true;
+        sound.init(); requestFullScreenMode(); buzz(20);
+        setStage('play'); play();
       };
+
+      if (stage === 'splash') {
+        return (
+          <div className="splash fixed inset-0 z-[90] flex flex-col items-center justify-center p-4 text-center overflow-y-auto"
+            style={{ background: 'radial-gradient(circle at 50% 30%, #14532d 0%, #052e16 45%, #020617 100%)' }}>
+            <img src="logo.png" alt="" className="splash-logo w-28 h-28 sm:w-36 sm:h-36 rounded-[28px] shadow-2xl ring-4 ring-white/20 mb-3" />
+            <h1 className="splash-title text-4xl sm:text-6xl font-black text-emerald-300 drop-shadow-lg leading-tight">
+              רחוב הברוש <span className="text-white">- המשחק</span>
+            </h1>
+            <p className="text-sm sm:text-base text-emerald-100/80 mt-1 mb-5">קיבוץ דפנה · 3 דקות · עוזרים לשכנים לפני שטולדו יעשו את זה 👑</p>
+            <button onClick={begin}
+              className="splash-btn bg-emerald-400 hover:bg-emerald-300 active:scale-95 text-slate-950 font-black text-2xl sm:text-3xl px-12 py-4 rounded-full shadow-2xl shadow-emerald-500/40 border-4 border-emerald-200 animate-pulse">
+              התחל את המשחק 🚀
+            </button>
+            {IS_TOUCH && !IS_STANDALONE && !CAN_FULLSCREEN && (
+              <p className="text-xs text-amber-200 mt-4 bg-amber-950/60 border border-amber-500/40 rounded-xl px-3 py-1.5">
+                📲 {IS_IOS ? 'באייפון' : 'בדפדפן הזה'} אפשר להסתיר את שורת הכתובת רק מהמסך הבית: לחצו <b>שתף ⬆️</b> ← <b>"הוסף למסך הבית"</b>
+              </p>
+            )}
+          </div>
+        );
+      }
 
       const subtitle = typing ? `${typing.from.split(' ')[0]} ${typing.f ? 'מקלידה' : 'מקליד'}...` : 'טולדו, אייל-שוורץ, גרשוני, ולק, חכים, כהן, שירי ועוד 21';
       return (
-        <div onPointerDown={enableSound} onKeyDown={enableSound}
-          className={`wa-intro fixed inset-0 z-[90] flex flex-col transition-opacity duration-700 ${stage === 'fade' ? 'opacity-0' : 'opacity-100'}`}
+        <div className={`wa-intro fixed inset-0 z-[90] flex flex-col transition-opacity duration-700 ${stage === 'fade' ? 'opacity-0' : 'opacity-100'}`}
           style={{ background: '#efeae2', fontFamily: "'Segoe UI', Rubik, Helvetica, Arial, sans-serif" }}>
           {/* header */}
           <div className="safe-x shrink-0 h-14 flex items-center gap-3 text-white shadow" style={{ background: '#008069' }}>
@@ -1845,10 +1872,6 @@
             style={{ bottom: 'calc(48px + 12px)', left: 'max(12px, env(safe-area-inset-left))' }}>
             דלג למשחק ⏭
           </button>
-          {!soundOn && (
-            <div className="absolute z-10 bg-black/65 text-white text-xs font-bold rounded-full px-3 py-1.5 animate-pulse pointer-events-none whitespace-nowrap"
-              style={{ bottom: 'calc(48px + 12px + 56px)', left: 'max(16px, env(safe-area-inset-left))' }}>🔊 הקישו לצליל</div>
-          )}
         </div>
       );
     }
@@ -2031,6 +2054,7 @@
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => Game.start()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg px-7 py-2.5 rounded-full shadow-2xl active:scale-95">שחק שוב 🔄</button>
+                    <button onClick={() => { sound.click(); setOverlay('pickHouse'); }} className="bg-slate-800 border border-slate-600 text-sm font-bold px-4 rounded-full">🏠 בית</button>
                     <button onClick={() => { sound.click(); setOverlay('custom'); }} className="bg-slate-800 border border-slate-600 text-sm font-bold px-4 rounded-full">✏️ דמות</button>
                   </div>
                 </div>
@@ -2101,7 +2125,10 @@
           )}
 
           {/* ===== OVERLAYS ===== */}
-          {s.intro && <WhatsAppIntro onDone={() => store.set({ intro: false })} />}
+          {s.intro && <WhatsAppIntro onDone={() => {
+            store.set({ intro: false });
+            if (!store.s.overlay && store.s.profile.home) Game.start();
+          }} />}
           {s.overlay === 'wizard' && <Wizard onClose={closeWizard} />}
           {s.overlay === 'custom' && <Customizer onClose={() => setOverlay(null)} />}
           {s.overlay === 'board' && <LeaderboardModal onClose={() => setOverlay(null)} />}
