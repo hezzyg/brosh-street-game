@@ -1,82 +1,1258 @@
-<!-- ... existing code ... -->
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="h-full w-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="manifest" href='data:application/manifest+json,{"name":"רחוב הברוש - קיבוץ דפנה","short_name":"רחוב הברוש","start_url":".","display":"standalone","orientation":"landscape","background_color":"#020617","theme_color":"#020617"}' />
+  <meta name="theme-color" content="#020617" />
+  <!-- Real manifest file (a data: URI manifest can't be installed, so "Add to Home Screen" kept the address bar) -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <title>רחוב הברוש - קיבוץ דפנה</title>
 
-  <!-- Phaser 3 CDN -->
-<!-- ... existing code ... -->
+  <!-- Pinned versions: unpinned CDN URLs can silently jump a major version and break the game -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.10/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet">
+
   <style>
-    * {
-      touch-action: manipulation;
-      user-select: none;
-      -webkit-user-select: none;
-    }
+    * { touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
     body, html {
-      height: 100vh;
-      height: 100dvh;
-      width: 100vw;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      overscroll-behavior: none;
-      font-family: 'Rubik', sans-serif;
-      background-color: #020617;
-      box-sizing: border-box;
+      height: 100vh; height: 100dvh; width: 100vw; margin: 0; padding: 0;
+      overflow: hidden; overscroll-behavior: none;
+      font-family: 'Rubik', sans-serif; background-color: #020617; box-sizing: border-box;
     }
-    #root {
-<!-- ... existing code ... -->
-      const toggleSound = () => {
-        sound.muted = !sound.muted;
-        setIsMuted(sound.muted);
-      };
+    #root { height: 100%; width: 100%; display: flex; flex-direction: column; }
+    canvas { display: block; touch-action: none; }
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
 
-      const requestFullScreenMode = () => {
-        const doc = document.documentElement;
-        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-          if (doc.requestFullscreen) {
-            doc.requestFullscreen().catch(() => {});
-          } else if (doc.webkitRequestFullscreen) {
-            doc.webkitRequestFullscreen();
-          }
+    @keyframes toastIn { from { transform: translate(-50%, -12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+    .toast { animation: toastIn .18s ease-out; }
+    @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+    .pop { animation: pop .35s ease-out; }
+    /* Short landscape phones (iPhone ≈ 340px tall): compact start screen so nothing is cut off */
+    @media (max-height: 420px) {
+      .start-title { font-size: 30px !important; line-height: 1.1; margin-bottom: 0 !important; }
+      .start-card { padding: 8px 12px !important; margin-bottom: 8px !important; font-size: 11px; }
+      .start-card > p { margin-top: 2px !important; }
+      .start-btn { font-size: 18px !important; padding: 8px 32px !important; }
+      .start-hint { margin-top: 6px !important; }
+    }
+    .safe-x { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+
+    /* Rotate-device overlay: phones/tablets in portrait only */
+    #rotate { display: none; }
+    @media (orientation: portrait) and (pointer: coarse) {
+      #rotate { display: flex; }
+    }
+    @keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+    .tilt { animation: tilt 1.6s ease-in-out infinite alternate; }
+  </style>
+</head>
+<body class="bg-slate-950 text-white h-full w-full flex flex-col justify-between overflow-hidden select-none">
+
+  <div id="root">
+    <div style="margin:auto;color:#34d399;font-weight:800;font-size:20px">טוען את רחוב הברוש... 🌳</div>
+  </div>
+
+  <div id="rotate" style="position:fixed;inset:0;z-index:100;background:#020617;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#e2e8f0;text-align:center;padding:24px">
+    <div class="tilt" style="font-size:64px">📱</div>
+    <div style="font-size:20px;font-weight:800;color:#34d399">סובבו את המכשיר לרוחב</div>
+    <div style="font-size:14px;color:#94a3b8">רחוב הברוש רחב מדי בשביל מסך עומד 🌳</div>
+  </div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useSyncExternalStore } = React;
+
+    // ================= CONFIG =================
+    const W = 1000, H = 600;
+    const ROUND_SECONDS = 180;
+    const RUSH_SECONDS = 30;                 // last 30s: double points
+    const DOOR_N = 150, DOOR_S = 452;        // where the player "knocks"
+    const PLAYER_MIN_Y = 158, PLAYER_MAX_Y = 446;
+    const IS_TOUCH = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+
+    // ---- Address-bar / fullscreen strategy ----
+    // A web page can only hide the browser UI in two ways:
+    //  1. Fullscreen API (Android Chrome, desktop, iPad) — needs a user tap, and the user can exit it (back gesture),
+    //     so we re-enter on the next tap during play.
+    //  2. Launching from the home screen (manifest display:fullscreen / iOS apple-mobile-web-app-capable).
+    //     iPhone Safari has NO fullscreen API for pages, so on iPhone this is the only way — we show instructions.
+    const IS_STANDALONE = ['fullscreen', 'standalone', 'minimal-ui'].some(m => window.matchMedia(`(display-mode: ${m})`).matches) || navigator.standalone === true;
+    const CAN_FULLSCREEN = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+    const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+    // ================= TINY STORE (single source of truth for React + Phaser) =================
+    // Fixes the old race where Phaser read inventory through a useEffect-synced copy
+    // (two pickups in the same frame could overwrite each other).
+    const store = {
+      s: {
+        phase: 'START',   // START | PLAYING | TOLEDO | OVER
+        score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS,
+        inventory: [], toast: null, near: null, toledoWait: 0, rush: false, muted: false,
+        stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, final: null,
+      },
+      subs: new Set(),
+      get: () => store.s,
+      set(patch) {
+        store.s = { ...store.s, ...(typeof patch === 'function' ? patch(store.s) : patch) };
+        store.subs.forEach(f => f());
+      },
+      sub(f) { store.subs.add(f); return () => store.subs.delete(f); },
+    };
+    const toast = (msg, kind = 'info') => store.set({ toast: { msg, kind, id: Math.random() } });
+    const addStat = (k, v = 1) => store.set(s => ({ stats: { ...s.stats, [k]: s.stats[k] + v } }));
+    const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+
+    // ================= SVG ASSETS =================
+    const createSVGDataURI = (svg) => {
+      const encoded = encodeURIComponent(svg).replace(/%([0-9A-F]{2})/g, (m, p1) => String.fromCharCode('0x' + p1));
+      return 'data:image/svg+xml;base64,' + window.btoa(encoded);
+    };
+
+    // Simple front-facing kibbutznik
+    const person = ({ shirt, pants = '#1e3a8a', skin = '#fcd9b6', hair = '#4a2c0f', style = 'short', hat = null }) => {
+      const hairSvg = {
+        short: `<path d="M17 20 Q28 6 39 20 Q36 13 28 12 Q20 13 17 20Z" fill="${hair}"/>`,
+        long: `<path d="M15 30 Q13 8 28 9 Q43 8 41 30 L38 30 Q39 16 28 15 Q17 16 18 30Z" fill="${hair}"/>`,
+        bald: `<path d="M17 22 Q17 17 19 16 M39 22 Q39 17 37 16" stroke="${hair}" stroke-width="3" fill="none"/>`,
+        curly: `<g fill="${hair}"><circle cx="20" cy="15" r="5"/><circle cx="28" cy="11" r="6"/><circle cx="36" cy="15" r="5"/></g>`,
+      }[style];
+      const hatSvg = hat === 'tembel'
+        ? `<path d="M15 17 Q28 0 41 17Z" fill="#a3b18a" stroke="#6b7a55" stroke-width="1.5"/><ellipse cx="28" cy="17" rx="16" ry="3.5" fill="#8a9a6b"/>`
+        : '';
+      return createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="56" height="64" viewBox="0 0 56 64">
+          <ellipse cx="28" cy="60" rx="15" ry="4" fill="#000" opacity=".28"/>
+          <rect x="19" y="47" width="7" height="13" rx="3" fill="${pants}"/>
+          <rect x="30" y="47" width="7" height="13" rx="3" fill="${pants}"/>
+          <rect x="10" y="32" width="7" height="15" rx="3.5" fill="${skin}"/>
+          <rect x="39" y="32" width="7" height="15" rx="3.5" fill="${skin}"/>
+          <rect x="14" y="30" width="28" height="21" rx="8" fill="${shirt}" stroke="rgba(0,0,0,.25)" stroke-width="1.5"/>
+          <circle cx="28" cy="21" r="11" fill="${skin}"/>
+          <circle cx="24" cy="21" r="1.6" fill="#0f172a"/><circle cx="32" cy="21" r="1.6" fill="#0f172a"/>
+          <path d="M24 26 Q28 29 32 26" stroke="#0f172a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          ${hairSvg}${hatSvg}
+        </svg>`);
+    };
+
+    const house = ({ wall, roof, door = '#78350f', extra = '' }) => createSVGDataURI(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="140" height="110" viewBox="0 0 140 110">
+        <ellipse cx="70" cy="104" rx="64" ry="6" fill="#000" opacity=".22"/>
+        <rect x="14" y="44" width="112" height="60" rx="3" fill="${wall}" stroke="rgba(0,0,0,.25)" stroke-width="2"/>
+        <polygon points="6,47 70,8 134,47" fill="${roof}" stroke="rgba(0,0,0,.3)" stroke-width="2"/>
+        <path d="M38 28 L102 28 M22 38 L118 38" stroke="rgba(0,0,0,.18)" stroke-width="2"/>
+        <!-- solar water heater (dud shemesh) -->
+        <rect x="88" y="14" width="22" height="9" rx="4.5" fill="#e2e8f0" stroke="#64748b"/>
+        <rect x="84" y="24" width="28" height="7" fill="#1e40af" stroke="#0f172a" stroke-width="1"/>
+        <rect x="56" y="68" width="28" height="36" rx="3" fill="${door}"/>
+        <circle cx="78" cy="87" r="2" fill="#fde047"/>
+        <rect x="24" y="56" width="22" height="20" fill="#bfdbfe" stroke="#334155" stroke-width="2"/>
+        <rect x="94" y="56" width="22" height="20" fill="#bfdbfe" stroke="#334155" stroke-width="2"/>
+        <path d="M24 61 h22 M24 65 h22 M94 61 h22 M94 65 h22" stroke="#475569" stroke-width="1.5"/>
+        <circle cx="16" cy="100" r="9" fill="#15803d"/><circle cx="26" cy="102" r="7" fill="#16a34a"/>
+        <circle cx="124" cy="100" r="9" fill="#15803d"/><circle cx="114" cy="102" r="7" fill="#16a34a"/>
+        ${extra}
+      </svg>`);
+
+    const GRAPHICS = {
+      player: person({ shirt: '#10b981', pants: '#1e3a8a', hat: 'tembel' }),
+      ai_0: person({ shirt: '#ef4444', hair: '#78350f', style: 'short' }),
+      ai_1: person({ shirt: '#ec4899', hair: '#b45309', style: 'long', skin: '#f5d0a9' }),
+      ai_2: person({ shirt: '#f59e0b', hair: '#94a3b8', style: 'bald', skin: '#e8b98f' }),
+      ai_3: person({ shirt: '#8b5cf6', hair: '#1c1917', style: 'curly', skin: '#c68b59' }),
+
+      house_a: house({ wall: '#fef3c7', roof: '#c2410c' }),
+      house_b: house({ wall: '#e0f2fe', roof: '#b91c1c' }),
+      house_c: house({ wall: '#fce7f3', roof: '#9a3412' }),
+      house_d: house({ wall: '#dcfce7', roof: '#be123c' }),
+      house_player: house({ wall: '#93c5fd', roof: '#1e40af', door: '#1e293b',
+        extra: '<path d="M70 62 c-4 -6 -12 -2 -8 4 l8 7 l8 -7 c4 -6 -4 -10 -8 -4z" fill="#ef4444"/>' }),
+      house_toledo: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120">
+          <ellipse cx="80" cy="114" rx="74" ry="6" fill="#000" opacity=".25"/>
+          <rect x="12" y="42" width="136" height="72" rx="4" fill="#fbbf24" stroke="#92400e" stroke-width="3"/>
+          <polygon points="2,45 80,4 158,45" fill="#7c2d12" stroke="#451a03" stroke-width="3"/>
+          <path d="M2 45 L158 45" stroke="#fde68a" stroke-width="3"/>
+          <rect x="22" y="50" width="8" height="64" fill="#fef3c7"/><rect x="130" y="50" width="8" height="64" fill="#fef3c7"/>
+          <rect x="44" y="50" width="8" height="64" fill="#fef3c7"/><rect x="108" y="50" width="8" height="64" fill="#fef3c7"/>
+          <path d="M64 114 V82 Q80 64 96 82 V114Z" fill="#451a03"/>
+          <circle cx="90" cy="98" r="2.5" fill="#fde047"/>
+          <path d="M62 30 l6 -12 l6 8 l6 -12 l6 12 l6 -8 l6 12z" fill="#fde047" stroke="#b45309" stroke-width="1.5"/>
+          <line x1="80" y1="4" x2="80" y2="-6" stroke="#451a03" stroke-width="2"/>
+        </svg>`),
+
+      tree_cypress: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="96" viewBox="0 0 36 96">
+          <ellipse cx="18" cy="92" rx="12" ry="3.5" fill="#000" opacity=".25"/>
+          <rect x="15.5" y="78" width="5" height="14" fill="#713f12"/>
+          <path d="M18 2 C30 24 32 60 26 82 L10 82 C4 60 6 24 18 2Z" fill="#14532d"/>
+          <path d="M17 8 C24 28 25 56 21 78 L13 78 C10 56 11 28 17 8Z" fill="#166534"/>
+          <path d="M15 20 C18 34 18 50 16 66" stroke="#22c55e" stroke-width="2" fill="none" opacity=".5"/>
+        </svg>`),
+
+      // Vehicles: drawn facing RIGHT; flipped when driving left
+      golf_cart: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="96" height="66" viewBox="0 0 96 66">
+          <rect x="12" y="6" width="68" height="6" rx="3" fill="#16a34a"/>
+          <rect x="16" y="10" width="3" height="24" fill="#475569"/><rect x="74" y="10" width="3" height="24" fill="#475569"/>
+          <circle cx="44" cy="26" r="7" fill="#fcd9b6"/>
+          <path d="M37 24 Q44 15 51 24" fill="#e2e8f0"/>
+          <rect x="8" y="32" width="80" height="20" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+          <rect x="82" y="38" width="6" height="5" rx="1.5" fill="#fde047"/>
+          <circle cx="26" cy="54" r="9" fill="#1e293b"/><circle cx="26" cy="54" r="3" fill="#cbd5e1"/>
+          <circle cx="72" cy="54" r="9" fill="#1e293b"/><circle cx="72" cy="54" r="3" fill="#cbd5e1"/>
+        </svg>`),
+      scooter_kid: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="56" height="72" viewBox="0 0 56 72">
+          <rect x="6" y="58" width="38" height="5" rx="2" fill="#0284c7"/>
+          <line x1="44" y1="60" x2="48" y2="22" stroke="#334155" stroke-width="3"/>
+          <line x1="42" y1="22" x2="54" y2="22" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="10" cy="64" r="5" fill="#0f172a"/><circle cx="44" cy="64" r="5" fill="#0f172a"/>
+          <rect x="20" y="40" width="6" height="18" rx="3" fill="#1e3a8a"/>
+          <rect x="17" y="24" width="16" height="18" rx="6" fill="#f97316"/>
+          <line x1="31" y1="29" x2="45" y2="23" stroke="#fcd9b6" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="26" cy="16" r="8" fill="#fcd9b6"/>
+          <path d="M17 15 Q26 2 35 15Z" fill="#dc2626"/>
+          <circle cx="29" cy="17" r="1.4" fill="#0f172a"/>
+        </svg>`),
+      tractor: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="110" height="80" viewBox="0 0 110 80">
+          <rect x="78" y="18" width="5" height="18" fill="#334155"/>
+          <rect x="22" y="8" width="34" height="34" rx="3" fill="#bae6fd" stroke="#b91c1c" stroke-width="5"/>
+          <rect x="16" y="38" width="84" height="22" rx="4" fill="#dc2626"/>
+          <rect x="60" y="30" width="38" height="12" rx="3" fill="#dc2626"/>
+          <circle cx="32" cy="60" r="18" fill="#1e293b"/><circle cx="32" cy="60" r="7" fill="#facc15"/>
+          <circle cx="88" cy="66" r="11" fill="#1e293b"/><circle cx="88" cy="66" r="4" fill="#facc15"/>
+        </svg>`),
+      cow: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="96" height="68" viewBox="0 0 96 68">
+          <path d="M10 28 Q2 34 6 44" stroke="#1e293b" stroke-width="3" fill="none"/>
+          <rect x="18" y="44" width="7" height="20" rx="2" fill="#f8fafc" stroke="#1e293b" stroke-width="1.5"/>
+          <rect x="62" y="44" width="7" height="20" rx="2" fill="#f8fafc" stroke="#1e293b" stroke-width="1.5"/>
+          <ellipse cx="44" cy="36" rx="34" ry="17" fill="#f8fafc" stroke="#1e293b" stroke-width="2"/>
+          <path d="M28 22 q10 6 4 16 q-10 2 -12 -8z" fill="#1e293b"/>
+          <circle cx="56" cy="40" r="7" fill="#1e293b"/>
+          <ellipse cx="42" cy="52" rx="6" ry="4" fill="#f9a8d4"/>
+          <ellipse cx="80" cy="26" rx="12" ry="11" fill="#f8fafc" stroke="#1e293b" stroke-width="2"/>
+          <ellipse cx="88" cy="30" rx="6" ry="5" fill="#fbcfe8"/>
+          <circle cx="80" cy="22" r="1.8" fill="#0f172a"/>
+          <path d="M72 14 l-4 -8 M86 14 l4 -8" stroke="#a16207" stroke-width="3" stroke-linecap="round"/>
+        </svg>`),
+      bamba: createSVGDataURI(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="44" viewBox="0 0 64 44">
+          <g transform="rotate(-18 24 22)">
+            <rect x="8" y="8" width="32" height="26" rx="4" fill="#facc15" stroke="#ca8a04" stroke-width="2"/>
+            <rect x="8" y="14" width="32" height="8" fill="#dc2626"/>
+          </g>
+          <g fill="#f59e0b" stroke="#b45309" stroke-width="1">
+            <rect x="44" y="12" width="10" height="5" rx="2.5"/><rect x="50" y="26" width="10" height="5" rx="2.5" transform="rotate(30 55 28)"/>
+            <rect x="38" y="34" width="10" height="5" rx="2.5"/><rect x="4" y="36" width="10" height="5" rx="2.5" transform="rotate(-20 9 38)"/>
+          </g>
+        </svg>`),
+    };
+
+    // ================= SOUND (Web Audio) =================
+    class SoundEngine {
+      constructor() { this.ctx = null; this.master = null; this.muted = false; this.bgmTimer = null; this.step = 0; this.rush = false; }
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.master = this.ctx.createGain();
+          this.master.gain.value = 0.9;
+          this.master.connect(this.ctx.destination);
         }
-      };
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+      }
+      tone(freq, type, dur, vol = 0.1, delay = 0, slideTo = null) {
+        if (this.muted || !this.ctx) return;
+        try {
+          const t = this.ctx.currentTime + delay;
+          const osc = this.ctx.createOscillator(), g = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, t);
+          if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+          osc.connect(g); g.connect(this.master);
+          osc.start(t); osc.stop(t + dur + 0.02);
+        } catch (e) {}
+      }
+      noise(dur, vol = 0.2) {
+        if (this.muted || !this.ctx) return;
+        const len = Math.floor(this.ctx.sampleRate * dur);
+        const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+        g.gain.value = vol; src.buffer = buf; src.connect(g); g.connect(this.master); src.start();
+      }
+      pickup() { this.tone(523, 'sine', 0.1, 0.15); this.tone(1046, 'sine', 0.15, 0.15, 0.06); }
+      deliver(combo = 1) {
+        const k = Math.pow(1.122, combo - 1); // each combo step = one tone higher
+        [523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((f, i) => this.tone(f * k, 'triangle', 0.2, 0.18, i * 0.06));
+      }
+      coin() { this.tone(988, 'square', 0.08, 0.06); this.tone(1319, 'square', 0.2, 0.06, 0.08); }
+      hit() { this.noise(0.25, 0.25); this.tone(140, 'sawtooth', 0.35, 0.22, 0, 50); }
+      slip() { this.tone(900, 'sine', 0.45, 0.15, 0, 150); }
+      fail() { [392, 370, 349, 311].forEach((f, i) => this.tone(f, 'sawtooth', 0.22, 0.06, i * 0.16)); }
+      alert() { this.tone(330, 'square', 0.1, 0.05); this.tone(247, 'square', 0.14, 0.05, 0.12); }
+      click() { this.tone(700, 'sine', 0.04, 0.08); }
+      tick() { this.tone(1200, 'square', 0.03, 0.04); }
+      newRequest() { this.tone(587.33, 'sine', 0.12, 0.12); this.tone(880, 'sine', 0.18, 0.14, 0.09); }
+      gift() { [784, 988, 1175, 1568].forEach((f, i) => this.tone(f, 'sine', 0.12, 0.1, i * 0.05)); }
+      rushStart() { [440, 554, 659, 880].forEach((f, i) => this.tone(f, 'square', 0.12, 0.06, i * 0.08)); }
+      end() { [523, 659, 784, 1046, 784, 1046].forEach((f, i) => this.tone(f, 'triangle', 0.25, 0.15, i * 0.12)); }
 
-      const startGame = () => {
+      // Original little "freygish" loop (melody + bass), speeds up during the rush
+      startBGM() {
+        this.init();
+        if (this.bgmTimer) return;
+        const N = { E4: 329.63, F4: 349.23, Gs4: 415.3, A4: 440, B4: 493.88, C5: 523.25, D5: 587.33, E5: 659.25 };
+        const mel = [N.E4, 0, N.Gs4, N.A4, N.B4, 0, N.A4, N.Gs4, N.A4, 0, N.C5, N.B4, N.A4, N.Gs4, N.F4, N.E4,
+                     N.A4, 0, N.C5, N.D5, N.E5, 0, N.D5, N.C5, N.B4, N.C5, N.B4, N.A4, N.Gs4, 0, N.E4, 0];
+        const bass = [164.81, 110, 146.83, 164.81, 110, 146.83, 123.47, 164.81];
+        const loop = () => {
+          if (!this.muted && !document.hidden) {
+            const f = mel[this.step % mel.length];
+            if (f) this.tone(f, 'triangle', 0.16, 0.035);
+            if (this.step % 4 === 0) this.tone(bass[(this.step / 4) % bass.length], 'sine', 0.3, 0.07);
+            if (this.step % 2 === 1) this.tone(6000, 'square', 0.015, 0.006);
+          }
+          this.step++;
+          this.bgmTimer = setTimeout(loop, this.rush ? 120 : 165);
+        };
+        loop();
+      }
+      stopBGM() { clearTimeout(this.bgmTimer); this.bgmTimer = null; this.rush = false; }
+    }
+    const sound = new SoundEngine();
+
+    // ================= GAME DATA =================
+    const ITEMS = {
+      milk:        { id: 'milk', name: 'חלב', icon: '🥛', weight: 1, points: 30, basic: true, ask: 'נגמר החלב לקפה!' },
+      eggs:        { id: 'eggs', name: 'ביצים', icon: '🥚', weight: 1, points: 30, basic: true, ask: 'צריך ביצים לעוגה!' },
+      screwdriver: { id: 'screwdriver', name: 'מברג', icon: '🪛', weight: 1, points: 40, basic: true, ask: 'למישהו יש מברג?' },
+      trimmer:     { id: 'trimmer', name: 'מזמרת גדר', icon: '✂️', weight: 2, points: 100, ask: 'הגדר השתלטה עליי!' },
+      hammer:      { id: 'hammer', name: 'פטיש 5 קילו', icon: '🔨', weight: 2, points: 80, ask: 'צריך לתלות תמונה!' },
+      watermelon:  { id: 'watermelon', name: 'אבטיח', icon: '🍉', weight: 2, points: 70, ask: 'אבטיח לבריכה!' },
+      guitar:      { id: 'guitar', name: 'גיטרה לקומזיץ', icon: '🎸', weight: 1, points: 90, ask: 'קומזיץ הערב!' },
+      sourdough:   { id: 'sourdough', name: 'מחמצת בת 10', icon: '🍞', weight: 1, points: 120, ask: 'המחמצת שלי מתה 😭' },
+      seinfeld:    { id: 'seinfeld', name: 'קלטת סיינפלד', icon: '📼', weight: 1, points: 110, ask: 'ערב נוסטלגיה במועדון!' },
+      flamingo:    { id: 'flamingo', name: 'פלמינגו מפלסטיק', icon: '🦩', weight: 1, points: 150, ask: 'הפלמינגו נעלם מהדשא!' },
+      pokemon:     { id: 'pokemon', name: 'קלף פוקימון', icon: '🃏', weight: 1, points: 180, ask: 'הנכד בא לבקר!' },
+    };
+    const ITEM_LIST = Object.values(ITEMS);
+    const BASICS = ITEM_LIST.filter(i => i.basic);
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const HOUSES_DATA = [
+      { id: 'toledo', name: 'אחוזת טולדו 👑', who: 'משפחת טולדו', x: 110, y: 98, side: 'N', isToledo: true, spriteKey: 'house_toledo' },
+      { id: 2, name: '2 · כהן', who: 'משפחת כהן', x: 310, y: 100, side: 'N', spriteKey: 'house_a' },
+      { id: 4, name: '4 · לוי', who: 'משפחת לוי', x: 500, y: 100, side: 'N', spriteKey: 'house_b' },
+      { id: 8, name: '8 · ישראלי', who: 'משפחת ישראלי', x: 690, y: 100, side: 'N', spriteKey: 'house_c' },
+      { id: 10, name: '10 · אברהם', who: 'משפחת אברהם', x: 880, y: 100, side: 'N', spriteKey: 'house_d' },
+      { id: 1, name: 'הבית שלך 🏠', who: 'הבית שלך', x: 110, y: 505, side: 'S', isPlayerHome: true, spriteKey: 'house_player' },
+      { id: 3, name: '3 · מזרחי', who: 'משפחת מזרחי', x: 310, y: 505, side: 'S', spriteKey: 'house_c' },
+      { id: 5, name: '5 · גולן', who: 'משפחת גולן', x: 500, y: 505, side: 'S', spriteKey: 'house_d' },
+      { id: 7, name: '7 · שטרן', who: 'משפחת שטרן', x: 690, y: 505, side: 'S', spriteKey: 'house_a' },
+      { id: 9, name: '9 · פרידמן', who: 'משפחת פרידמן', x: 880, y: 505, side: 'S', spriteKey: 'house_b' },
+    ];
+
+    const VEHICLES = [
+      { key: 'golf_cart', name: 'קלנועית', speed: 170 },
+      { key: 'scooter_kid', name: 'ילד על קורקינט', speed: 250, zigzag: true },
+      { key: 'tractor', name: 'טרקטור', speed: 105 },
+      { key: 'cow', name: 'פרה בורחת', speed: 80 },
+      { key: 'bamba', name: 'במבה שנשפכה', speed: 0, obstacle: true },
+    ];
+    const RIVAL_NAMES = ['שמעון', 'רונית', 'אבנר', 'תמר', 'צביקה', 'אורנה'];
+
+    const hebText = (size, color = '#ffffff', extra = {}) => ({
+      fontFamily: 'Rubik, sans-serif', fontSize: size + 'px', fontStyle: 'bold', color, rtl: true, ...extra,
+    });
+    const HEB = /[\u0590-\u05FF]/;
+
+    // ================= PHASER SCENE =================
+    class MainScene extends Phaser.Scene {
+      constructor() { super({ key: 'MainScene' }); }
+
+      preload() {
+        Object.keys(GRAPHICS).forEach(k => this.load.image(k, GRAPHICS[k]));
+      }
+
+      create(data = {}) {
+        this.drawStreet();
+
+        if (!this.textures.exists('spark')) {
+          const g = this.make.graphics({ x: 0, y: 0, add: false });
+          g.fillStyle(0xffffff); g.fillCircle(6, 6, 6); g.generateTexture('spark', 12, 12); g.destroy();
+        }
+        this.burst = this.add.particles(0, 0, 'spark', {
+          speed: { min: 140, max: 340 }, angle: { min: 200, max: 340 }, lifespan: 850, gravityY: 520,
+          scale: { start: 0.9, end: 0 }, tint: [0xfacc15, 0x34d399, 0xf472b6, 0x60a5fa, 0xffffff], emitting: false,
+        }).setDepth(2000);
+        this.dust = this.add.particles(0, 0, 'spark', {
+          speed: { min: 20, max: 60 }, lifespan: 400, scale: { start: 0.5, end: 0 }, alpha: { start: 0.5, end: 0 },
+          tint: 0xd6d3d1, emitting: false,
+        }).setDepth(5);
+
+        // Houses
+        this.houses = HOUSES_DATA.map(d => this.createHouse(d));
+
+        // Player
+        this.player = this.physics.add.sprite(110, 430, 'player').setScale(0.85).setDepth(430);
+        this.player.body.setSize(30, 18).setOffset(13, 44);
+        this.player.setCollideWorldBounds(true);
+        this.prompt = this.add.text(0, 0, '', hebText(12, '#fde047', { backgroundColor: '#0f172acc', padding: { x: 6, y: 3 } }))
+          .setOrigin(0.5).setDepth(3000).setVisible(false);
+
+        // Groups
+        this.aiRunners = this.physics.add.group();
+        this.vehicles = this.physics.add.group();
+        this.groundItems = [];
+
+        // Controls
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+        this.actionKeys = [this.input.keyboard.addKey('SPACE'), this.input.keyboard.addKey('E')];
+
+        this.physics.add.overlap(this.player, this.vehicles, this.handleVehicleCollision, null, this);
+        this.physics.add.overlap(this.aiRunners, this.vehicles, this.handleRivalHit, null, this);
+
+        // Golden-hour tint that slowly grows over the round
+        this.dusk = this.add.rectangle(W / 2, H / 2, W, H, 0xfb7185, 0).setDepth(1500);
+
+        // Run state
+        this.elapsed = 0;
+        this.reqTimer = 4;
+        this.vehTimer = 0.5;
+        this.stun = 0;
+        this.invuln = 0;
+        this.walkClock = 0;
+        this.hintedReq = null;
+        this.fullHintAt = 0;
+        this.lastTick = null;
+        this.toledoWait = 0;
+
+        if (data.firstItem) {
+          // Onboarding guarantee: first request matches a starting item, no rival, extra patience
+          this.time.delayedCall(700, () => {
+            this.spawnHouseRequest(data.firstItem, { noAI: true, duration: 32 });
+            toast(`👋 יש לך ${data.firstItem.icon} ${data.firstItem.name} — רוץ לבית הזוהר!`, 'good');
+          });
+          this.time.delayedCall(250, () => this.popText(W / 2, H / 2, 'יאללה! 🏃', '#34d399', 54));
+        }
+      }
+
+      // ---------- world ----------
+      drawStreet() {
+        const g = this.add.graphics().setDepth(-10);
+        g.fillStyle(0x3f7a34).fillRect(0, 0, W, H);
+        // grass texture
+        const rnd = new Phaser.Math.RandomDataGenerator(['dafna']);
+        for (let i = 0; i < 260; i++) {
+          const x = rnd.between(0, W), y = rnd.pick([rnd.between(0, 150), rnd.between(452, 600)]);
+          g.fillStyle(rnd.pick([0x4d8c3f, 0x356b2b, 0x5b9a49]), 1).fillRect(x, y, 3, 6);
+        }
+        for (let i = 0; i < 40; i++) {
+          const x = rnd.between(0, W), y = rnd.pick([rnd.between(10, 140), rnd.between(460, 590)]);
+          g.fillStyle(rnd.pick([0xfde047, 0xf9a8d4, 0xffffff, 0xc084fc]), 1).fillCircle(x, y, 2.5);
+        }
+        // sidewalks with tiles
+        g.fillStyle(0x94a3b8).fillRect(0, 148, W, 55).fillRect(0, 397, W, 55);
+        g.lineStyle(1, 0x64748b, 0.6);
+        for (let x = 0; x <= W; x += 32) { g.lineBetween(x, 148, x, 203); g.lineBetween(x, 397, x, 452); }
+        g.lineBetween(0, 175, W, 175); g.lineBetween(0, 424, W, 424);
+        // road
+        g.fillStyle(0x334155).fillRect(0, 205, W, 190);
+        g.fillStyle(0x2b3646);
+        for (let i = 0; i < 70; i++) g.fillCircle(rnd.between(0, W), rnd.between(210, 390), rnd.between(2, 6));
+        // dashed center line
+        g.fillStyle(0xf8fafc, 0.7);
+        for (let x = 10; x < W; x += 70) g.fillRect(x, 298, 40, 5);
+        // crosswalk near home/Toledo
+        g.fillStyle(0xf8fafc, 0.85);
+        for (let y = 214; y < 390; y += 22) g.fillRect(200, y, 50, 12);
+        // red/white curbs
+        for (let x = 0; x < W; x += 30) {
+          const c = (x / 30) % 2 === 0 ? 0xdc2626 : 0xf8fafc;
+          g.fillStyle(c).fillRect(x, 202, 30, 5).fillRect(x, 393, 30, 5);
+        }
+
+        // swaying cypress trees
+        [20, 210, 405, 595, 785, 980].forEach((tx, i) => {
+          [{ y: 140, d: 2 }, { y: 600, d: 600 }].forEach(({ y, d }) => {
+            const t = this.add.image(tx, y, 'tree_cypress').setOrigin(0.5, 0.95).setScale(1.05).setDepth(d);
+            this.tweens.add({ targets: t, angle: { from: -2, to: 2 }, duration: 1600 + i * 170, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+          });
+        });
+      }
+
+      createHouse(data) {
+        const sprite = this.add.image(data.x, data.y, data.spriteKey).setDepth(1);
+        const aura = this.add.circle(data.x, data.y, 58, data.isToledo ? 0xfacc15 : 0x38bdf8, 0.5).setDepth(0).setVisible(!!data.isToledo);
+        this.tweens.add({ targets: aura, scale: { from: 0.9, to: 1.35 }, alpha: { from: data.isToledo ? 0.25 : 0.55, to: 0 }, duration: data.isToledo ? 1800 : 900, repeat: -1 });
+
+        const labelY = data.side === 'N' ? data.y + 64 : data.y - 66;
+        this.add.text(data.x, labelY, data.name, hebText(12, data.isToledo ? '#fde047' : '#f8fafc', {
+          backgroundColor: '#0f172a99', padding: { x: 6, y: 2 },
+        })).setOrigin(0.5).setDepth(2);
+
+        const by = data.y - 6;
+        const bubble = this.add.container(data.x, by).setDepth(1000).setVisible(false);
+        const bubbleBg = this.add.circle(0, 0, 25, 0xffffff).setStrokeStyle(3, 0x3b82f6);
+        const itemIcon = this.add.text(0, 0, '', { fontSize: '26px', padding: { x: 2, y: 4 } }).setOrigin(0.5);
+        const scoreBadge = this.add.text(0, -34, '+100', hebText(12, '#0f172a', { backgroundColor: '#facc15', padding: { x: 5, y: 2 }, rtl: false })).setOrigin(0.5);
+        const barBg = this.add.rectangle(0, 33, 52, 7, 0x0f172a, 0.85).setStrokeStyle(1, 0xffffff, 0.6);
+        const barFill = this.add.rectangle(-25, 33, 50, 5, 0x22c55e).setOrigin(0, 0.5);
+        const match = this.add.text(0, 48, '✔ יש לך!', hebText(12, '#ffffff', { backgroundColor: '#059669', padding: { x: 5, y: 2 } })).setOrigin(0.5).setVisible(false);
+        const rival = this.add.text(28, -18, '🏃', { fontSize: '18px', padding: { x: 1, y: 3 } }).setOrigin(0.5).setVisible(false);
+        bubble.add([bubbleBg, itemIcon, scoreBadge, barBg, barFill, match, rival]);
+        this.tweens.add({ targets: bubble, y: by - 5, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+
+        return {
+          ...data, sprite, aura, bubble, bubbleBg, itemIcon, scoreBadge, barFill, match, rival, bubbleY: by,
+          doorX: data.x, doorY: data.side === 'N' ? DOOR_N : DOOR_S, currentRequest: null,
+        };
+      }
+
+      // ---------- main loop ----------
+      update(time, delta) {
+        const dt = Math.min(delta, 50) / 1000;
+        this.updateVehicles(time, dt);
+
+        const phase = store.s.phase;
+        const running = phase === 'PLAYING' || phase === 'TOLEDO';
+        if (!running) { this.player.setVelocity(0, 0); this.prompt.setVisible(false); this.aiRunners.setVelocity(0, 0); return; }
+
+        // --- clock ---
+        this.elapsed += dt;
+        const left = Math.max(0, ROUND_SECONDS - this.elapsed);
+        const leftSec = Math.ceil(left);
+        if (leftSec !== store.s.timeLeft) {
+          store.set({ timeLeft: leftSec });
+          if (leftSec <= 10 && leftSec > 0) sound.tick();
+        }
+        if (!store.s.rush && left <= RUSH_SECONDS) this.startRush();
+        this.dusk.setAlpha(Math.min(0.2, (this.elapsed / ROUND_SECONDS) * 0.2));
+        if (left <= 0) return this.endGame();
+
+        // --- spawners: get busier as the round goes on ---
+        const progress = this.elapsed / ROUND_SECONDS;
+        this.reqTimer -= dt;
+        if (this.reqTimer <= 0) {
+          this.spawnHouseRequest();
+          this.reqTimer = store.s.rush ? 3 : Phaser.Math.Linear(6.5, 4, progress);
+        }
+
+        this.updatePlayer(time, dt, phase);
+        this.updateRequests(dt);
+        this.updateRivals(dt);
+        this.updateGroundItems(time);
+        if (phase === 'PLAYING') this.updateProximity();
+        else this.prompt.setVisible(false);
+
+        if (phase === 'TOLEDO' && this.toledoWait > 0) {
+          this.toledoWait -= dt;
+          const w = Math.max(0, Math.ceil(this.toledoWait));
+          if (w !== store.s.toledoWait) store.set({ toledoWait: w });
+        }
+
+        // keyboard action
+        if (this.actionKeys.some(k => Phaser.Input.Keyboard.JustDown(k))) this.handleAction();
+      }
+
+      updatePlayer(time, dt, phase) {
+        const p = this.player;
+        if (this.invuln > 0) {
+          this.invuln -= dt * 1000;
+          p.setAlpha(this.invuln > 0 && Math.floor(time / 90) % 2 ? 0.45 : 1);
+        }
+        if (this.stun > 0 || phase === 'TOLEDO') {
+          this.stun -= dt * 1000;
+          p.setVelocity(0, 0);
+          return;
+        }
+        let vx = 0, vy = 0;
+        if (this.cursors.left.isDown || this.wasd.A.isDown) vx -= 1;
+        if (this.cursors.right.isDown || this.wasd.D.isDown) vx += 1;
+        if (this.cursors.up.isDown || this.wasd.W.isDown) vy -= 1;
+        if (this.cursors.down.isDown || this.wasd.S.isDown) vy += 1;
+        const stick = window.virtualStick;
+        if (stick && (stick.x || stick.y)) { vx = stick.x; vy = stick.y; }
+        const len = Math.hypot(vx, vy);
+        if (len > 1) { vx /= len; vy /= len; }
+
+        // heavy items slow you down
+        const inv = store.s.inventory;
+        const extraWeight = inv.reduce((a, i) => a + (i.weight - 1), 0);
+        const speed = 250 - inv.length * 8 - extraWeight * 35;
+        p.setVelocity(vx * speed, vy * speed);
+        if (p.y < PLAYER_MIN_Y) p.y = PLAYER_MIN_Y;
+        if (p.y > PLAYER_MAX_Y) p.y = PLAYER_MAX_Y;
+        p.setDepth(p.y);
+
+        // little walk wobble + dust
+        if (len > 0.1) {
+          this.walkClock += dt * 14;
+          p.setAngle(Math.sin(this.walkClock) * 7);
+          if (vx) p.setFlipX(vx < 0);
+          if (Math.random() < 0.25) this.dust.emitParticleAt(p.x, p.y + 24, 1);
+        } else {
+          p.setAngle(0);
+        }
+      }
+
+      updateRequests(dt) {
+        const inv = store.s.inventory;
+        this.houses.forEach(house => {
+          const req = house.currentRequest;
+          if (!req) return;
+          req.patience -= (100 / req.duration) * dt;
+          const pct = Math.max(0, req.patience) / 100;
+          house.barFill.setScale(pct, 1);
+          house.barFill.fillColor = pct > 0.5 ? 0x22c55e : pct > 0.25 ? 0xf59e0b : 0xef4444;
+
+          const has = inv.some(i => i.id === req.item.id);
+          house.match.setVisible(has);
+          house.bubbleBg.setStrokeStyle(has ? 5 : 3, has ? 0x10b981 : (pct < 0.25 ? 0xef4444 : 0x3b82f6));
+          house.bubble.setScale(has ? 1.12 : 1);
+          house.bubble.x = house.x + (pct < 0.25 ? (Math.random() - 0.5) * 4 : 0);
+
+          if (req.patience < 75 && !req.aiDispatched && !req.noAI) {
+            req.aiDispatched = true;
+            this.dispatchAIRunner(house);
+          }
+          if (req.patience <= 0) this.failRequest(house, `😤 ${house.who} התייאשה מלחכות ל${req.item.name}`);
+        });
+      }
+
+      updateRivals(dt) {
+        this.aiRunners.getChildren().slice().forEach(ai => {
+          ai.carry.setPosition(ai.x, ai.y - 40);
+          ai.setDepth(ai.y); ai.carry.setDepth(ai.y + 1);
+          if (ai.stun > 0) {
+            ai.stun -= dt * 1000; ai.setVelocity(0, 0); ai.setAngle(ai.angle + 20);
+            return;
+          }
+          ai.setAngle(Math.sin(this.time.now / 70) * 7);
+          const h = ai.targetHouse;
+          // request already handled (by player or timeout) → rival gives up
+          if (h.currentRequest !== ai.req) return this.removeRival(ai, true);
+          const angle = Phaser.Math.Angle.Between(ai.x, ai.y, h.doorX, h.doorY);
+          this.physics.velocityFromRotation(angle, 115, ai.body.velocity);
+          ai.setFlipX(ai.body.velocity.x < 0);
+          if (Phaser.Math.Distance.Between(ai.x, ai.y, h.doorX, h.doorY) < 18) {
+            this.failRequest(h, `😱 ${ai.rivalName} הקדים/ה אותך ל${h.who}!`);
+            this.removeRival(ai, false);
+          }
+        });
+      }
+
+      updateGroundItems(time) {
+        const inv = store.s.inventory;
+        this.groundItems = this.groundItems.filter(gi => {
+          if (time > gi.expireAt) { gi.obj.destroy(); return false; }
+          if (time > gi.expireAt - 3000) gi.obj.setAlpha(Math.floor(time / 150) % 2 ? 0.3 : 1);
+          if (time < gi.readyAt || this.stun > 0) return true;
+          if (Phaser.Math.Distance.Between(this.player.x, this.player.y + 10, gi.obj.x, gi.obj.y) < 34) {
+            if (inv.length >= 3) {
+              if (time > this.fullHintAt) { toast('הבית שלך מלא! זרוק חפץ (✕) כדי להרים.', 'bad'); this.fullHintAt = time + 3000; }
+              return true;
+            }
+            this.addToInventory(gi.item, `הרמת מהרצפה: ${gi.item.icon} ${gi.item.name}`);
+            gi.obj.destroy();
+            return false;
+          }
+          return true;
+        });
+      }
+
+      updateProximity() {
+        const p = this.player;
+        const near = this.houses.find(h => Phaser.Math.Distance.Between(p.x, p.y, h.doorX, h.doorY) < 64);
+        const kind = !near ? null : near.isToledo ? 'toledo' : near.isPlayerHome ? 'home' : near.currentRequest ? 'request' : null;
+        if (kind !== store.s.near) store.set({ near: kind });
+
+        if (kind === 'toledo' || kind === 'home') {
+          const label = kind === 'toledo' ? '👑 להיכנס לטולדו' : '🏠 לקחת מהבית';
+          this.prompt.setText(IS_TOUCH ? label : `${label} [Space]`).setPosition(p.x, p.y - 50).setVisible(true);
+        } else {
+          this.prompt.setVisible(false);
+        }
+
+        // Auto-deliver when you reach a house carrying what it needs; otherwise a one-time hint
+        if (kind === 'request' && this.stun <= 0) {
+          const req = near.currentRequest;
+          if (store.s.inventory.some(i => i.id === req.item.id)) this.fulfillRequest(near);
+          else if (this.hintedReq !== req) { this.hintedReq = req; this.showMissingHint(near); }
+        }
+      }
+
+      updateVehicles(time, dt) {
+        const phase = store.s.phase;
+        this.vehTimer -= dt;
+        if (this.vehTimer <= 0) {
+          this.spawnVehicle();
+          const progress = (this.elapsed || 0) / ROUND_SECONDS;
+          this.vehTimer = phase === 'START' ? 2.5 : Phaser.Math.Linear(2.8, 1.5, progress);
+        }
+        // Old bug: vehicles were never removed, so after 3 had driven off-screen traffic stopped forever
+        this.vehicles.getChildren().slice().forEach(v => {
+          if (v.cfg.zigzag) v.setVelocityY(Math.sin(time / 260 + v.seed) * 90);
+          if (v.y < 222) v.y = 222;
+          if (v.y > 378) v.y = 378;
+          v.setDepth(v.y);
+          const off = v.x < -140 || v.x > W + 140;
+          const expired = v.cfg.obstacle && time > v.expireAt;
+          if (off || expired) {
+            if (expired) this.tweens.add({ targets: v, alpha: 0, duration: 300, onComplete: () => v.destroy() });
+            else v.destroy();
+          }
+        });
+      }
+
+      // ---------- spawning ----------
+      spawnVehicle() {
+        if (this.vehicles.getLength() >= 5) return;
+        const cfg = pick(VEHICLES);
+        if (cfg.obstacle && this.vehicles.getChildren().filter(v => v.cfg.obstacle).length >= 2) return;
+        const dir = Math.random() > 0.5 ? 1 : -1;
+        let x, y;
+        if (cfg.obstacle) {
+          x = 260 + Math.random() * (W - 380);
+          y = 235 + Math.random() * 130;
+        } else {
+          x = dir === 1 ? -100 : W + 100;
+          y = (dir === 1 ? 345 : 258) + (Math.random() - 0.5) * 30; // right-hand traffic lanes
+        }
+        const v = this.vehicles.create(x, y, cfg.key);
+        v.cfg = cfg; v.seed = Math.random() * 10;
+        v.body.setSize(v.width * 0.72, v.height * 0.4).setOffset(v.width * 0.14, v.height * 0.55);
+        if (cfg.obstacle) {
+          v.body.setImmovable(true);
+          v.expireAt = this.time.now + 14000;
+          v.setScale(0); this.tweens.add({ targets: v, scale: 1, duration: 300, ease: 'Back.out' });
+        } else {
+          v.setVelocityX(cfg.speed * dir * Phaser.Math.FloatBetween(0.9, 1.15));
+          v.setFlipX(dir === -1);
+          if (cfg.key === 'cow') this.tweens.add({ targets: v, angle: { from: -3, to: 3 }, duration: 300, yoyo: true, repeat: -1 });
+        }
+      }
+
+      spawnHouseRequest(itemToRequest = null, opts = {}) {
+        const active = this.houses.filter(h => h.currentRequest).length;
+        if (active >= 4) return;
+        const eligible = this.houses.filter(h => !h.isPlayerHome && !h.isToledo && !h.currentRequest);
+        if (!eligible.length) return;
+
+        const house = pick(eligible);
+        const item = itemToRequest || pick(ITEM_LIST);
+        const progress = this.elapsed / ROUND_SECONDS;
+        house.currentRequest = {
+          item, patience: 100,
+          duration: opts.duration || Phaser.Math.Linear(26, 19, progress) - (item.points >= 150 ? 2 : 0),
+          aiDispatched: false, noAI: !!opts.noAI,
+        };
+        house.itemIcon.setText(item.icon);
+        house.scoreBadge.setText(`+${item.points * (store.s.rush ? 2 : 1)}`);
+        house.rival.setVisible(false);
+        house.bubble.setVisible(true).setScale(0);
+        this.tweens.add({ targets: house.bubble, scale: 1, duration: 350, ease: 'Back.out' });
+        house.aura.setVisible(true);
+        this.speech(house, item.ask);
+        sound.newRequest();
+      }
+
+      speech(house, text) {
+        const y = house.side === 'N' ? house.bubbleY + 70 : house.bubbleY - 70;
+        const t = this.add.text(house.x, y, text, hebText(13, '#0f172a', { backgroundColor: '#ffffff', padding: { x: 7, y: 4 } }))
+          .setOrigin(0.5).setDepth(1100).setScale(0);
+        this.tweens.add({ targets: t, scale: 1, duration: 200, ease: 'Back.out' });
+        this.tweens.add({ targets: t, alpha: 0, delay: 2200, duration: 400, onComplete: () => t.destroy() });
+      }
+
+      dispatchAIRunner(house) {
+        const sources = this.houses.filter(h => h.id !== house.id && !h.isPlayerHome && !h.isToledo);
+        const src = pick(sources);
+        const ai = this.aiRunners.create(src.doorX, src.doorY, `ai_${Math.floor(Math.random() * 4)}`).setScale(0.8);
+        ai.body.setSize(30, 18).setOffset(13, 44);
+        ai.targetHouse = house; ai.req = house.currentRequest; ai.stun = 0;
+        ai.rivalName = pick(RIVAL_NAMES);
+        ai.carry = this.add.text(ai.x, ai.y - 40, house.currentRequest.item.icon, { fontSize: '20px', padding: { x: 1, y: 3 } }).setOrigin(0.5);
+        house.rival.setVisible(true);
+        this.tweens.add({ targets: house.rival, scale: { from: 1.6, to: 1 }, duration: 300 });
+        sound.alert();
+        toast(`⚠️ ${ai.rivalName} רץ/ה להביא ${house.currentRequest.item.icon} ל${house.who}!`, 'bad');
+      }
+
+      removeRival(ai, sulk) {
+        if (sulk) this.popText(ai.x, ai.y - 30, '😤', '#ffffff', 26);
+        ai.carry.destroy();
+        ai.destroy();
+      }
+
+      // ---------- interactions ----------
+      handleVehicleCollision(player, vehicle) {
+        if (store.s.phase !== 'PLAYING' || this.stun > 0 || this.invuln > 0) return;
+        const isBamba = vehicle.cfg.obstacle;
+        if (isBamba) sound.slip(); else sound.hit();
+        buzz([60, 40, 60]);
+        addStat('hits');
+        this.stun = isBamba ? 1000 : 1200;
+        this.invuln = this.stun + 1300;
+        this.cameras.main.shake(220, 0.012);
+        this.cameras.main.flash(120, 255, 80, 80);
+        this.tweens.add({ targets: player, angle: 720, duration: this.stun, onComplete: () => player.setAngle(0) });
+        this.popText(player.x, player.y - 45, '💫', '#ffffff', 30);
+
+        const inv = store.s.inventory;
+        inv.forEach(item => {
+          const a = Math.random() * Math.PI * 2, r = 45 + Math.random() * 30;
+          this.spawnGroundItem(item, player.x, player.y, player.x + Math.cos(a) * r, Phaser.Math.Clamp(player.y + Math.sin(a) * r, PLAYER_MIN_Y, PLAYER_MAX_Y), 1400);
+        });
+        store.set({ inventory: [] });
+        toast(isBamba
+          ? '🍿 החלקת על במבה! החפצים התפזרו — אסוף אותם.'
+          : `💥 נפגעת מ${vehicle.cfg.name}! החפצים התפזרו — אסוף אותם.`, 'bad');
+      }
+
+      handleRivalHit(ai, vehicle) {
+        if (ai.stun > 0) return;
+        ai.stun = 1300;
+        this.popText(ai.x, ai.y - 40, '💫', '#ffffff', 24);
+      }
+
+      handleAction() {
+        const s = store.s;
+        if (s.phase !== 'PLAYING' || this.stun > 0) return;
+        const p = this.player;
+        const h = this.houses.find(h => Phaser.Math.Distance.Between(p.x, p.y, h.doorX, h.doorY) < 64);
+        if (!h) { toast('🚶 גש לדלת של בית כדי לפעול', 'info'); return; }
+        sound.click();
+        if (h.isToledo) return this.openToledo();
+        if (h.isPlayerHome) return this.restockAtHome();
+        if (h.currentRequest) this.showMissingHint(h);
+      }
+
+      showMissingHint(house) {
+        const it = house.currentRequest.item;
+        const where = it.basic ? 'יש כזה בבית שלך 🏠 (למטה משמאל)' : 'רק לטולדו 👑 יש (למעלה משמאל)';
+        toast(`${house.who} צריכה ${it.icon} ${it.name} — ${where}`, 'info');
+      }
+
+      fulfillRequest(house) {
+        const s = store.s;
+        const req = house.currentRequest;
+        const idx = s.inventory.findIndex(i => i.id === req.item.id);
+        const inv = [...s.inventory]; inv.splice(idx, 1);
+
+        const fast = req.patience > 70;
+        const mult = s.combo * (s.rush ? 2 : 1);
+        const points = Math.round(req.item.points * mult * (fast ? 1.2 : 1));
+        const newCombo = Math.min(s.combo + 1, 4);
+        store.set(st => ({
+          inventory: inv, score: st.score + points, favors: st.favors + 1, combo: newCombo,
+          stats: { ...st.stats, deliveries: st.stats.deliveries + 1, bestCombo: Math.max(st.stats.bestCombo, newCombo) },
+        }));
+
+        sound.deliver(s.combo); sound.coin(); buzz(25);
+        this.burst.explode(30, house.x, house.bubbleY);
+        this.tweens.add({ targets: house.sprite, scaleX: 1.1, scaleY: 0.9, duration: 90, yoyo: true, repeat: 1 });
+        this.popText(house.x, house.bubbleY - 20, `+${points}`, '#fde047', 30);
+        this.popText(house.x + 46, house.bubbleY - 6, '⭐+1', '#c4b5fd', 16);
+        if (fast) this.popText(house.x - 50, house.bubbleY - 6, '⚡מהיר!', '#67e8f9', 16);
+        if (newCombo > s.combo) this.popText(W / 2, 300, `x${newCombo} קומבו! 🔥`, '#f472b6', 46);
+
+        this.clearRequest(house);
+        toast(`✨ הבאת ל${house.who} ${req.item.icon} ${req.item.name}!`, 'good');
+
+        // Neighbor attic gift
+        if (Math.random() < 0.35) {
+          const gift = pick(ITEM_LIST.filter(i => !i.basic));
+          this.time.delayedCall(450, () => {
+            this.spawnGroundItem(gift, house.x, house.y, house.doorX + (Math.random() > 0.5 ? 40 : -40), house.doorY + (house.side === 'N' ? 20 : -20), 600);
+            sound.gift();
+            toast(`🎁 ${house.who} זרקה לך ${gift.icon} ${gift.name} מהבוידעם!`, 'gold');
+          });
+        }
+      }
+
+      failRequest(house, msg) {
+        this.clearRequest(house);
+        this.popText(house.x, house.bubbleY, '💢', '#ffffff', 34);
+        sound.fail();
+        const lostCombo = store.s.combo > 1;
+        store.set(st => ({ combo: 1, stats: { ...st.stats, missed: st.stats.missed + 1 } }));
+        toast(msg + (lostCombo ? ' (הקומבו התאפס)' : ''), 'bad');
+      }
+
+      clearRequest(house) {
+        house.currentRequest = null;
+        house.bubble.setVisible(false);
+        house.aura.setVisible(false);
+      }
+
+      spawnGroundItem(item, fromX, fromY, toX, toY, readyDelay) {
+        const obj = this.add.container(fromX, fromY).setDepth(toY - 1);
+        obj.add([
+          this.add.ellipse(0, 14, 28, 8, 0x000000, 0.3),
+          this.add.circle(0, 0, 17, 0xffffff, 0.9).setStrokeStyle(2, item.basic ? 0x38bdf8 : 0xfacc15),
+          this.add.text(0, 0, item.icon, { fontSize: '20px', padding: { x: 1, y: 3 } }).setOrigin(0.5),
+        ]);
+        this.tweens.add({ targets: obj, x: toX, duration: 500, ease: 'Quad.out' });
+        this.tweens.add({ targets: obj, y: toY, duration: 500, ease: 'Bounce.out' });
+        const now = this.time.now;
+        this.groundItems.push({ obj, item, readyAt: now + readyDelay, expireAt: now + 16000 });
+      }
+
+      dropFromInventory(idx) {
+        const inv = [...store.s.inventory];
+        const [item] = inv.splice(idx, 1);
+        if (!item) return;
+        store.set({ inventory: inv });
+        const p = this.player;
+        this.spawnGroundItem(item, p.x, p.y, p.x + (Math.random() > 0.5 ? 36 : -36), p.y + 14, 1500);
+        toast(`זרקת ${item.icon} ${item.name} לרחוב`, 'info');
+      }
+
+      addToInventory(item, msg) {
+        store.set(st => ({ inventory: [...st.inventory, item] }));
+        sound.pickup(); buzz(15);
+        this.popText(this.player.x, this.player.y - 46, item.icon, '#ffffff', 26);
+        if (msg) toast(msg, 'good');
+      }
+
+      restockAtHome() {
+        const inv = store.s.inventory;
+        if (inv.length >= 3) return toast('הבית שלך מלא! זרוק חפץ (✕) כדי לפנות מקום.', 'bad');
+        // Smart restock: grab a basic item someone is actually waiting for
+        const wanted = this.houses.map(h => h.currentRequest?.item).filter(i => i && i.basic && !inv.some(x => x.id === i.id));
+        const item = wanted[0] || pick(BASICS);
+        this.addToInventory(item, `לקחת מהבית: ${item.icon} ${item.name}`);
+      }
+
+      openToledo() {
+        this.toledoWait = 3;
+        store.set({ phase: 'TOLEDO', toledoWait: 3 });
+      }
+
+      startRush() {
+        store.set({ rush: true });
+        sound.rush = true; sound.rushStart();
+        this.popText(W / 2, 270, '🔥 שעת לחץ! נקודות כפולות', '#fb923c', 40);
+        this.houses.forEach(h => h.currentRequest && h.scoreBadge.setText(`+${h.currentRequest.item.points * 2}`));
+      }
+
+      popText(x, y, str, color, size) {
+        const t = this.add.text(x, y, str, hebText(size, color, { rtl: HEB.test(str), stroke: '#0f172a', strokeThickness: Math.max(3, size / 7), padding: { x: 4, y: 6 } }))
+          .setOrigin(0.5).setDepth(2500).setScale(0.3);
+        this.tweens.add({ targets: t, scale: 1, duration: 220, ease: 'Back.out' });
+        this.tweens.add({ targets: t, y: y - 50, alpha: 0, delay: 500, duration: 650, onComplete: () => t.destroy() });
+      }
+
+      endGame() {
+        const s = store.s;
+        let best = 0;
+        try { best = Number(localStorage.getItem('cypress_best') || 0); } catch (e) {}
+        const isRecord = s.score > best;
+        if (isRecord) { try { localStorage.setItem('cypress_best', String(s.score)); } catch (e) {} }
+        store.set({ phase: 'OVER', near: null, final: { score: s.score, best: Math.max(best, s.score), isRecord, ...s.stats } });
+        this.player.setVelocity(0, 0);
+        sound.stopBGM(); sound.end();
+        if (isRecord) for (let i = 0; i < 4; i++) this.time.delayedCall(i * 250, () => this.burst.explode(40, 200 + Math.random() * 600, 300));
+      }
+    }
+
+    // ================= GAME API (React → Phaser) =================
+    const Game = {
+      scene: () => window.__game?.scene?.getScene('MainScene'),
+      start() {
         requestFullScreenMode();
-        sound.init();
-        sound.startBGM();
+        sound.init(); sound.stopBGM(); sound.startBGM();
+        const shuffled = [...ITEM_LIST].sort(() => Math.random() - 0.5);
+        const [i1, i2] = shuffled;
+        store.set({
+          phase: 'PLAYING', score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS, inventory: [i1, i2],
+          toast: null, near: null, rush: false, final: null, toledoWait: 0,
+          stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 },
+        });
+        const sc = this.scene(); if (sc) sc.elapsed = 0;
+        // Restart the scene so leftovers from the previous round (requests, rivals, items) are cleared
+        sc?.scene.restart({ firstItem: i1 });
+      },
+      action() { this.scene()?.handleAction(); },
+      drop(idx) { sound.click(); this.scene()?.dropFromInventory(idx); },
+      skipToledo() {
+        if (store.s.favors < 1) return;
+        sound.coin();
+        const sc = this.scene(); if (sc) sc.toledoWait = 0;
+        store.set(s => ({ favors: s.favors - 1, toledoWait: 0 }));
+      },
+      pickToledo(item) {
+        if (store.s.inventory.length >= 3) return toast('הבית שלך מלא!', 'bad');
+        this.scene()?.addToInventory(item, `לקחת מטולדו: ${item.icon} ${item.name}`);
+        if (store.s.inventory.length >= 3) this.closeToledo();
+      },
+      closeToledo() { sound.click(); if (store.s.phase === 'TOLEDO') store.set({ phase: 'PLAYING' }); },
+    };
 
-        // 1. הגדרת 2 חפצים התחלתיים אקראיים
-<!-- ... existing code ... -->
-              {/* START OVERLAY SCREEN */}
-              {gameState === 'START' && (
-                <div 
-                  onClick={requestFullScreenMode}
-                  class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center z-40 overflow-y-auto">
-                  <h1 class="text-4xl sm:text-6xl font-black text-emerald-400 mb-2 drop-shadow-lg">רחוב הברוש 🌳</h1>
-                  <p class="text-xs sm:text-sm text-slate-300 max-w-md mb-4 leading-relaxed">
-                    עזרו לשכנים בקיבוץ דפנה להשיג חפצים לפני ששכנים אחרים יקדימו אתכם!
-                  </p>
+    function requestFullScreenMode() {
+      const doc = document.documentElement;
+      if (CAN_FULLSCREEN && !IS_STANDALONE && !isFullscreen()) {
+        const p = doc.requestFullscreen ? doc.requestFullscreen() : doc.webkitRequestFullscreen?.();
+        if (p && p.then) p.then(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {});
+      }
+    }
 
-                  <div class="bg-slate-900/90 p-4 rounded-2xl mb-4 text-right text-xs text-slate-300 space-y-2 border border-slate-800 w-full max-w-sm shadow-xl">
-                    <p>🏠 <b>הבית שלך:</b> מכיל עד 3 חפצים בכל רגע! התחלה עם 2 חפצים מזומנים.</p>
-                    <p>🏷️ <b>באדג' ניקוד:</b> הסתכל על הניקוד המופיע מעל הבועה הזוהרת.</p>
-                    <p>🛺 <b>סכנות בכביש:</b> היזהר מקלנועיות, קורקינטים, טרקטורים ובמבות!</p>
-                    <p>👑 <b>אחוזת טולדו:</b> זוהרת בזהב בפינה השמאלית העליונה - מחזיקים את כל החפצים!</p>
-                  </div>
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, () => store.set({ fs: isFullscreen() })));
 
-                  <p class="text-[11px] text-amber-300/80 mb-4 bg-amber-950/40 border border-amber-500/30 px-3 py-1 rounded-full">
-                    💡 לחוויית מסך מלא ללא שורת כתובת: לחץ "התחל" או בחר בפתרון "הוסף למסך הבית" בדפדפן
-                  </p>
+    // ================= REACT UI =================
+    const TOAST_STYLES = {
+      good: 'border-emerald-400 bg-emerald-950/95',
+      bad: 'border-red-400 bg-red-950/95',
+      gold: 'border-amber-400 bg-amber-950/95',
+      info: 'border-sky-400 bg-slate-900/95',
+    };
 
-                  <button 
-                    onClick={startGame}
-                    class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl sm:text-2xl px-10 py-3.5 rounded-full shadow-2xl transition transform active:scale-95">
-                    התחל משחק! 🚀
-                  </button>
-                </div>
+    function Joystick() {
+      const baseRef = useRef(null);
+      const [knob, setKnob] = useState({ x: 0, y: 0 });
+      const R = 46;
+      const move = (e) => {
+        const r = baseRef.current.getBoundingClientRect();
+        let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+        const d = Math.hypot(dx, dy);
+        if (d > R) { dx = dx / d * R; dy = dy / d * R; }
+        setKnob({ x: dx, y: dy });
+        const m = Math.hypot(dx, dy) / R;
+        window.virtualStick = m < 0.2 ? { x: 0, y: 0 } : { x: dx / R, y: dy / R };
+      };
+      const end = () => { setKnob({ x: 0, y: 0 }); window.virtualStick = { x: 0, y: 0 }; };
+      return (
+        <div ref={baseRef}
+          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); move(e); }}
+          onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) move(e); }}
+          onPointerUp={end} onPointerCancel={end}
+          className="pointer-events-auto w-32 h-32 rounded-full bg-slate-900/40 border-2 border-white/25 relative backdrop-blur-sm"
+          style={{ touchAction: 'none' }}>
+          <div className="absolute w-14 h-14 rounded-full bg-white/70 border-2 border-white shadow-lg"
+            style={{ left: '50%', top: '50%', transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))` }} />
+        </div>
+      );
+    }
+
+    function rankFor(score) {
+      if (score < 300) return 'מתנדב/ת מתחיל/ה 🌱';
+      if (score < 900) return 'חבר/ת קיבוץ מן השורה 🚜';
+      if (score < 1800) return 'מזכיר/ת הקיבוץ 📋';
+      return 'אגדת רחוב הברוש 👑';
+    }
+
+    function App() {
+      const s = useSyncExternalStore(store.sub, store.get);
+      const [scorePop, setScorePop] = useState(0);
+
+      // Create the Phaser game once: the street runs behind the start screen as an "attract mode"
+      useEffect(() => {
+        if (window.__game) return;
+        window.__game = new Phaser.Game({
+          type: Phaser.AUTO,
+          parent: 'phaser-container',
+          width: W, height: H,
+          backgroundColor: '#1a3a17',
+          scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+          physics: { default: 'arcade', arcade: { debug: false } },
+          scene: [MainScene],
+        });
+      }, []);
+
+      // Toast auto-dismiss (old toasts never disappeared)
+      useEffect(() => {
+        if (!s.toast) return;
+        const id = setTimeout(() => store.set({ toast: null }), 2800);
+        return () => clearTimeout(id);
+      }, [s.toast]);
+
+      useEffect(() => { setScorePop(k => k + 1); }, [s.score]);
+
+      const toggleSound = () => { sound.muted = !sound.muted; store.set({ muted: sound.muted }); };
+      const playing = s.phase === 'PLAYING' || s.phase === 'TOLEDO';
+      const low = s.timeLeft <= 10;
+      const actionLabel = { toledo: ['👑', 'טולדו'], home: ['🏠', 'הבית'], request: ['❓', 'מה צריך?'] }[s.near] || ['🖐️', 'פעולה'];
+
+      return (
+        <div className="relative w-full h-full flex flex-col justify-between overflow-hidden"
+          onPointerUpCapture={() => {
+            // pointerup is a valid "user activation" for touch; re-enter fullscreen if the player swiped out of it
+            if (IS_TOUCH && store.s.phase === 'PLAYING') requestFullScreenMode();
+          }}>
+
+          {/* TOP HUD */}
+          <header className="safe-x absolute top-0 left-0 right-0 z-30 bg-slate-950/70 backdrop-blur-md border-b border-white/10 py-1.5 flex justify-between items-center text-xs sm:text-sm">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <span key={scorePop} className="pop font-black text-amber-400 text-sm sm:text-lg">🏆 {s.score}</span>
+              <span className="font-bold text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-full">⭐ {s.favors}</span>
+              {s.combo > 1 && <span key={'c' + s.combo} className="pop font-black text-pink-400">x{s.combo} 🔥</span>}
+              {s.rush && playing && <span className="font-black text-orange-400 animate-pulse">נקודות x2!</span>}
+            </div>
+
+            <div className={`font-mono text-base sm:text-xl font-black ${low ? 'text-red-400 animate-pulse' : s.rush ? 'text-orange-400' : 'text-emerald-400'}`}>
+              ⏱️ {Math.floor(s.timeLeft / 60)}:{(s.timeLeft % 60).toString().padStart(2, '0')}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button onClick={toggleSound} className="p-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-lg">{s.muted ? '🔇' : '🔊'}</button>
+              {CAN_FULLSCREEN && !IS_STANDALONE && !s.fs && (
+                <button onClick={requestFullScreenMode} className={`p-1.5 rounded-lg ${IS_TOUCH ? 'bg-amber-500 text-slate-950 animate-pulse' : 'bg-slate-800/80 hover:bg-slate-700'}`} title="מסך מלא">⛶</button>
               )}
+            </div>
+          </header>
 
-              {/* GAME OVER OVERLAY SCREEN */}
-<!-- ... existing code ... -->
+          {/* TOAST */}
+          {s.toast && (
+            <div key={s.toast.id}
+              className={`toast absolute top-12 left-1/2 z-40 border-2 text-slate-50 px-4 py-2 rounded-2xl text-xs sm:text-sm font-semibold shadow-2xl max-w-md text-center leading-snug ${TOAST_STYLES[s.toast.kind]}`}
+              style={{ transform: 'translateX(-50%)' }}>
+              {s.toast.msg}
+            </div>
+          )}
+
+          {/* PHASER CANVAS */}
+          <div id="phaser-container" className="w-full h-full flex-1" style={{ direction: "ltr", background: "#3f7a34" }}></div>
+
+          {/* INVENTORY ("הבית שלך") — compact pill at bottom center */}
+          {playing && (
+            <footer className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 bg-slate-950/75 backdrop-blur-md border border-white/10 rounded-2xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-2xl">
+              <span className="font-bold text-slate-300 whitespace-nowrap">🎒</span>
+              {[0, 1, 2].map(i => {
+                const item = s.inventory[i];
+                return (
+                  <div key={i} className={`relative w-11 h-11 rounded-xl flex items-center justify-center text-2xl border-2 ${item ? 'bg-slate-800 border-slate-500' : 'bg-slate-900/60 border-dashed border-slate-700'}`}
+                    title={item?.name}>
+                    {item?.icon}
+                    {item?.weight > 1 && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-[8px] leading-none bg-amber-600 text-white rounded px-1 py-0.5">כבד</span>}
+                    {item && (
+                      <button onClick={() => Game.drop(i)}
+                        className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center shadow">✕</button>
+                    )}
+                  </div>
+                );
+              })}
+              {!IS_TOUCH && <span className="text-[11px] text-slate-400 mr-2 whitespace-nowrap">חיצים/WASD · Space ליד דלת</span>}
+            </footer>
+          )}
+
+          {/* TOUCH CONTROLS — old version used `sm:hidden`, which hid them on almost every phone in landscape */}
+          {IS_TOUCH && s.phase === 'PLAYING' && (
+            <div className="absolute inset-0 pointer-events-none z-20 flex justify-between items-end"
+              style={{ padding: '0 max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left))', direction: 'ltr' }}>
+              <Joystick />
+              <button onPointerDown={(e) => { e.preventDefault(); Game.action(); }}
+                className={`pointer-events-auto w-20 h-20 text-slate-950 font-black rounded-full shadow-2xl flex flex-col items-center justify-center border-4 transition ${s.near === 'toledo' ? 'bg-amber-400 border-amber-200 scale-110' : s.near === 'home' ? 'bg-sky-400 border-sky-200 scale-110' : 'bg-emerald-500/80 border-emerald-300/70'}`}>
+                <span className="text-2xl leading-none">{actionLabel[0]}</span>
+                <span className="text-[10px]">{actionLabel[1]}</span>
+              </button>
+            </div>
+          )}
+
+          {/* START SCREEN — street keeps animating behind it */}
+          {s.phase === 'START' && (
+            <div className="absolute inset-0 bg-slate-950/75 flex flex-col items-center p-3 text-center z-40 overflow-y-auto [&>*:first-child]:mt-auto [&>*:last-child]:mb-auto">
+              <h1 className="start-title text-4xl sm:text-6xl font-black text-emerald-400 mb-1 drop-shadow-lg">רחוב הברוש 🌳</h1>
+              <p className="text-xs sm:text-sm text-slate-200 max-w-md mb-3">קיבוץ דפנה · 3 דקות · כמה שכנים תספיק לעזור?</p>
+
+              <div className="start-card bg-slate-900/90 p-3 sm:p-4 rounded-2xl mb-3 text-right text-xs text-slate-300 space-y-1.5 border border-slate-700 w-full max-w-sm shadow-xl">
+                <p>🏠 <b>רוץ לבית הזוהר</b> עם החפץ שהוא צריך — המסירה אוטומטית.</p>
+                <p>🎒 <b>עד 3 חפצים.</b> בסיסיים (🥛🥚🪛) בבית שלך, הכל אצל <b className="text-amber-300">טולדו 👑</b>.</p>
+                <p>🏃 <b>שכנים מתחרים</b> יוצאים לדרך — תקדים אותם! מסירות ברצף = קומבו 🔥</p>
+                <p>🛺 <b>זהירות בכביש:</b> קלנועיות, טרקטורים, פרות ובמבה על הכביש!</p>
+              </div>
+
+              <button onClick={() => Game.start()}
+                className="start-btn bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl sm:text-2xl px-10 py-3 rounded-full shadow-2xl transition transform active:scale-95 animate-bounce">
+                התחל משחק! 🚀
+              </button>
+              {IS_TOUCH && !IS_STANDALONE && (
+                CAN_FULLSCREEN
+                  ? <p className="start-hint text-[11px] text-slate-400 mt-3">📺 המשחק עובר למסך מלא (בלי שורת כתובת) כשלוחצים "התחל"</p>
+                  : <p className="start-hint text-xs text-amber-200 mt-3 bg-amber-950/60 border border-amber-500/40 rounded-xl px-3 py-1.5">
+                      📲 {IS_IOS ? 'באייפון' : 'בדפדפן הזה'} אפשר להסתיר את שורת הכתובת רק מהמסך הבית: לחצו <b>שתף ⬆️</b> ← <b>"הוסף למסך הבית"</b>
+                    </p>
+              )}
+            </div>
+          )}
+
+          {/* GAME OVER */}
+          {s.phase === 'OVER' && s.final && (
+            <div className="absolute inset-0 bg-slate-950/85 flex flex-col items-center justify-center p-4 text-center z-40">
+              <h2 className="text-3xl sm:text-5xl font-black text-amber-400 mb-1">נגמר הזמן! ⏰</h2>
+              {s.final.isRecord && <div className="text-pink-400 font-black text-lg animate-bounce">🎉 שיא חדש!</div>}
+              <p className="text-4xl sm:text-6xl font-black text-emerald-400 my-1">{s.final.score}</p>
+              <p className="text-sm text-slate-300 mb-3">{rankFor(s.final.score)} · שיא: {s.final.best}</p>
+              <div className="grid grid-cols-4 gap-2 mb-4 text-xs">
+                {[['📦', 'מסירות', s.final.deliveries], ['🔥', 'קומבו', 'x' + s.final.bestCombo], ['😤', 'פספוסים', s.final.missed], ['💥', 'תאונות', s.final.hits]].map(([ic, lb, v]) => (
+                  <div key={lb} className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+                    <div className="text-lg">{ic}</div><div className="font-black text-white">{v}</div><div className="text-slate-400">{lb}</div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => Game.start()}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg sm:text-xl px-8 py-3 rounded-full shadow-2xl active:scale-95">
+                שחק שוב 🔄
+              </button>
+            </div>
+          )}
+
+          {/* TOLEDO MODAL — the street keeps running behind it, so the small talk actually costs time */}
+          {s.phase === 'TOLEDO' && (
+            <div className="absolute inset-0 bg-slate-950/55 flex items-center justify-center p-3 z-40">
+              <div className="bg-slate-900/95 border-2 border-amber-500 p-4 sm:p-5 rounded-3xl max-w-sm w-full shadow-2xl text-center">
+                <h2 className="text-xl sm:text-2xl font-black text-amber-400">👑 אחוזת משפחת טולדו</h2>
+                <p className="text-[11px] text-slate-400 mb-2">יש להם הכל במחסן. הרחוב ממשיך לרוץ בזמן שאתה פה!</p>
+
+                {s.toledoWait > 0 ? (
+                  <div className="py-3 space-y-2">
+                    <p className="text-slate-200 text-sm animate-pulse">☕ טולדו מוזג קפה ומספר על הימים הראשונים בדפנה...</p>
+                    <div className="text-4xl font-black text-amber-500 font-mono">{s.toledoWait}</div>
+                    <button onClick={() => Game.skipToledo()} disabled={s.favors < 1}
+                      className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs px-4 py-2 rounded-xl font-bold shadow-lg">
+                      דלג על השיחה (1 ⭐) · יש לך {s.favors}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xs text-slate-300 mb-2">בחר חפצים ({s.inventory.length}/3):</p>
+                    <div className="grid grid-cols-4 gap-1.5 max-h-48 overflow-y-auto p-1 custom-scrollbar">
+                      {ITEM_LIST.map(item => (
+                        <button key={item.id} onClick={() => Game.pickToledo(item)}
+                          className="bg-slate-800 border border-slate-700 hover:border-amber-500 p-1.5 rounded-xl flex flex-col items-center active:scale-95">
+                          <span className="text-2xl">{item.icon}</span>
+                          <span className="text-[9px] font-bold text-slate-200 leading-tight">{item.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button onClick={() => Game.closeToledo()} className="mt-3 text-xs text-slate-300 underline hover:text-white">חזרה לרחוב ←</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
