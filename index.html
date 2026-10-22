@@ -154,7 +154,7 @@
         score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS,
         inventory: [], toast: null, near: null, toledoWait: 0, rush: false, muted: false,
         stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, final: null,
-        profile: null, overlay: null, wanted: {}, intro: true, floaters: [], board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
+        profile: null, overlay: null, wanted: {}, requests: {}, intro: true, floaters: [], paused: false, coach: null, board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
       },
       subs: new Set(),
       get: () => store.s,
@@ -497,6 +497,7 @@
       else if (!away && ctx.state !== 'running') ctx.resume().catch(() => {});
     };
     document.addEventListener('visibilitychange', syncAudioToFocus);
+    document.addEventListener('visibilitychange', () => { if (document.hidden && store.s.phase === 'PLAYING') Game.pause(); });
     ['blur', 'focus', 'pagehide', 'pageshow'].forEach(ev => window.addEventListener(ev, syncAudioToFocus));
 
     // ================= GAME DATA =================
@@ -650,6 +651,11 @@
         this.lastTick = null;
         this.toledoWait = 0;
 
+        this.coach = null;
+        if (data.firstItem && !ls.get('cypress_coached', false)) {
+          this.coachFrom = { x: startX, y: startY };
+          this.time.delayedCall(900, () => this.setCoach('move'));
+        }
         if (data.firstItem && home) {
           // Come out of your own front door
           this.player.setPosition(home.doorX, home.doorY).setAlpha(0).setScale(0.4);
@@ -720,7 +726,13 @@
           backgroundColor: '#0f172a99', padding: { x: 6, y: 2 },
         })).setOrigin(0.5).setDepth(2);
 
-        const by = data.side === 'N' ? data.y + 6 : data.y - 6; // north bubbles a bit lower so the points badge isn't clipped
+        const by = data.side === 'N' ? data.y + 6 : data.y - 6;
+        // Pick-your-house pointer (on the sidewalk, pointing at the house); Toledo is marked as taken
+        const hintY = data.side === 'N' ? data.y + 46 : data.y - 50;
+        const pickHint = data.isToledo
+          ? this.add.text(data.x, data.y, '🚫 תפוס', hebText(18, '#ffffff', { backgroundColor: '#b91c1cee', padding: { x: 8, y: 3 } })).setOrigin(0.5).setDepth(1200).setVisible(false)
+          : this.add.text(data.x, hintY, data.side === 'N' ? '👆' : '👇', { fontSize: '44px', padding: { x: 2, y: 8 } }).setOrigin(0.5).setDepth(1200).setVisible(false);
+        if (!data.isToledo) this.tweens.add({ targets: pickHint, y: hintY + (data.side === 'N' ? -10 : 10), duration: 380, yoyo: true, repeat: -1, ease: 'Sine.inOut' }); // north bubbles a bit lower so the points badge isn't clipped
         const bubble = this.add.container(data.x, by).setDepth(1000).setVisible(false);
         const bubbleBg = this.add.circle(0, 0, 48, 0xffffff).setStrokeStyle(4, 0x3b82f6);
         const itemIcon = this.add.text(0, 2, '', { fontSize: '54px', padding: { x: 4, y: 8 } }).setOrigin(0.5);
@@ -733,11 +745,13 @@
         const match = this.add.text(0, matchY, '💚 יש לך!', hebText(14, '#ffffff', { backgroundColor: '#16a34a', padding: { x: 7, y: 3 }, stroke: '#052e16', strokeThickness: 2 })).setOrigin(0.5).setVisible(false);
         this.tweens.add({ targets: match, y: matchY + 7, duration: 320, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
         const rival = this.add.text(44, -36, '🏃', { fontSize: '26px', padding: { x: 2, y: 4 } }).setOrigin(0.5).setVisible(false);
-        bubble.add([glow, bubbleBg, itemIcon, scoreBadge, barBg, barFill, match, rival]);
+        // "where do I get this?" — shown when you don't carry the item
+        const source = this.add.text(0, matchY, '', hebText(13, '#ffffff', { backgroundColor: '#0f172ae6', padding: { x: 6, y: 2 } })).setOrigin(0.5).setVisible(false);
+        bubble.add([glow, bubbleBg, itemIcon, scoreBadge, barBg, barFill, match, source, rival]);
         this.tweens.add({ targets: bubble, y: by - 5, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
 
         const h = {
-          ...data, sprite, label, aura, bubble, glow, bubbleBg, itemIcon, scoreBadge, barFill, match, rival, bubbleY: by,
+          ...data, sprite, label, aura, bubble, glow, bubbleBg, itemIcon, scoreBadge, barFill, match, source, rival, bubbleY: by, pickHint,
           doorX: data.x, doorY: data.side === 'N' ? DOOR_N : DOOR_S, currentRequest: null, isPlayerHome: false,
         };
         // Choosing your home: tap a house while the "pick your house" banner is up
@@ -748,6 +762,13 @@
       }
 
       homeHouse() { return this.houses.find(h => h.isPlayerHome); }
+
+      // First game only: short contextual tips (move → deliver → fetch from Toledo/home)
+      setCoach(c) {
+        this.coach = c;
+        store.set({ coach: c === 'wait-source' ? null : c });
+        if (c === null) ls.set('cypress_coached', true);
+      }
 
       applyHome(id) {
         this.houses.forEach(h => {
@@ -771,6 +792,8 @@
 
       moveIntoHome(h) {
         this.applyHome(h.id);
+        this.player.setVisible(true); this.nameTag.setVisible(true);
+        this.popText(h.x, h.y - 10, '🏠 ברוכים הבאים!', '#93c5fd', 30);
         sound.deliver(1); buzz(25);
         this.burst.explode(30, h.x, h.y - 20);
         this.tweens.add({ targets: h.sprite, scaleX: 0.98, scaleY: 0.8, duration: 110, yoyo: true, repeat: 1 });
@@ -789,7 +812,13 @@
         const picking = store.s.overlay === 'pickHouse';
         if (picking !== this.pickMode) {
           this.pickMode = picking;
-          this.houses.forEach(h => { if (!h.isToledo) h.aura.setVisible(picking || !!h.currentRequest); });
+          this.houses.forEach(h => {
+            if (!h.isToledo) h.aura.setVisible(picking || !!h.currentRequest);
+            h.pickHint.setVisible(picking && !h.isPlayerHome);
+            if (h.isToledo) { if (picking) h.sprite.setTint(0x777777); else h.sprite.clearTint(); }
+          });
+          this.player.setVisible(!picking || !!this.homeHouse());
+          this.nameTag.setVisible(!picking || !!this.homeHouse());
         }
 
         const phase = store.s.phase;
@@ -817,6 +846,7 @@
         }
 
         this.updatePlayer(time, dt, phase);
+        if (this.coach === 'move' && Phaser.Math.Distance.Between(this.player.x, this.player.y, this.coachFrom.x, this.coachFrom.y) > 70) this.setCoach('deliver');
         this.updateRequests(dt);
         this.updateGuide(time);
         this.updateRivals(dt);
@@ -897,6 +927,7 @@
           const has = inv.some(i => i.id === req.item.id);
           // "You have it!" — green glow, bouncing label, bigger bubble, green house aura; other requests fade back
           house.match.setVisible(has);
+          house.source.setVisible(!has);
           house.glow.setVisible(has);
           house.bubbleBg.setStrokeStyle(has ? 6 : 3, has ? 0x16a34a : (pct < 0.25 ? 0xef4444 : 0x3b82f6));
           house.bubble.setScale(has ? 1.1 : 1).setAlpha(anyMatch && !has ? 0.55 : 1);
@@ -925,12 +956,27 @@
             if (d < bestD) { bestD = d; best = h; }
           }
         });
-        const key = JSON.stringify(wanted);
-        if (key !== this.wantedKey) { this.wantedKey = key; store.set({ wanted }); }
-        const show = best && bestD > 110 && this.stun <= 0 && store.s.phase === 'PLAYING';
+        const requests = {};
+        this.houses.forEach(h => { if (h.currentRequest) (requests[h.currentRequest.item.id] = requests[h.currentRequest.item.id] || []).push(h.family); });
+        const key = JSON.stringify([wanted, requests]);
+        if (key !== this.wantedKey) { this.wantedKey = key; store.set({ wanted, requests }); }
+        // Nothing to deliver? point at where the most urgent missing item can be found
+        let target = best, kind = 'deliver';
+        if (!best && inv.length < 3) {
+          const urgent = this.houses.filter(h => h.currentRequest).sort((a, b) => a.currentRequest.patience - b.currentRequest.patience)[0];
+          if (urgent) {
+            const basic = urgent.currentRequest.item.basic;
+            target = basic ? this.homeHouse() : this.houses.find(h => h.isToledo);
+            kind = basic ? 'home' : 'toledo';
+          }
+        }
+        if (target && kind !== 'deliver' && this.coach === 'wait-source') this.setCoach('source');
+        const dist = target ? Phaser.Math.Distance.Between(p.x, p.y, target.doorX, target.doorY) : 0;
+        const show = target && dist > 110 && this.stun <= 0 && store.s.phase === 'PLAYING';
         this.guide.setVisible(!!show);
         if (show) {
-          const a = Phaser.Math.Angle.Between(p.x, p.y, best.doorX, best.doorY);
+          this.guide.setColor(kind === 'deliver' ? '#22c55e' : kind === 'toledo' ? '#facc15' : '#38bdf8');
+          const a = Phaser.Math.Angle.Between(p.x, p.y, target.doorX, target.doorY);
           const r = 58 + Math.sin(time / 120) * 6;
           this.guide.setPosition(p.x + Math.cos(a) * r, p.y - 8 + Math.sin(a) * r).setRotation(a).setAlpha(0.75 + Math.sin(time / 120) * 0.25);
         }
@@ -980,7 +1026,8 @@
       updateProximity() {
         const p = this.player;
         const near = this.houses.find(h => Phaser.Math.Distance.Between(p.x, p.y, h.doorX, h.doorY) < 64);
-        const kind = !near ? null : near.isToledo ? 'toledo' : near.isPlayerHome ? 'home' : near.currentRequest ? 'request' : null;
+        let kind = !near ? null : near.isToledo ? 'toledo' : near.isPlayerHome ? 'home' : near.currentRequest ? 'request' : null;
+        if (kind === 'home' && this.elapsed < 5) kind = null;
         if (kind !== store.s.near) store.set({ near: kind });
 
         if (kind === 'toledo' || kind === 'home') {
@@ -1064,6 +1111,7 @@
           aiDispatched: false, noAI: !!opts.noAI,
         };
         house.itemIcon.setText(item.icon);
+        house.source.setText(item.basic ? '🏠 יש בבית שלך' : '👑 אצל טולדו');
         house.scoreBadge.setText(`+${item.points * (store.s.rush ? 2 : 1)}`);
         house.rival.setVisible(false);
         house.bubble.setVisible(true).setScale(0);
@@ -1180,6 +1228,7 @@
 
         this.clearRequest(house);
         toast(`✨ הבאת ל${house.who} ${req.item.icon} ${req.item.name}!`, 'good');
+        if (this.coach === 'deliver' || this.coach === 'move') this.setCoach('wait-source');
 
         // Neighbor attic gift
         if (Math.random() < 0.35) {
@@ -1246,6 +1295,7 @@
         // Smart restock: grab a basic item someone is actually waiting for
         const wanted = this.houses.map(h => h.currentRequest?.item).filter(i => i && i.basic && !inv.some(x => x.id === i.id));
         const item = wanted[0] || pick(BASICS);
+        if (this.coach === 'source' || this.coach === 'wait-source') this.setCoach(null);
         const h = this.homeHouse(), p = this.player, backY = p.y;
         this.stun = 520; // in and out of the front door
         this.tweens.add({ targets: p, x: h.doorX, y: h.doorY, alpha: 0, scale: 0.5, duration: 200, yoyo: true, hold: 140,
@@ -1255,6 +1305,7 @@
       }
 
       openToledo() {
+        if (this.coach === 'source' || this.coach === 'wait-source') this.setCoach(null);
         this.toledoWait = 3;
         store.set({ phase: 'TOLEDO', toledoWait: 3 });
       }
@@ -1279,6 +1330,7 @@
         try { best = Number(localStorage.getItem('cypress_best') || 0); } catch (e) {}
         const isRecord = s.score > best;
         if (isRecord) { try { localStorage.setItem('cypress_best', String(s.score)); } catch (e) {} }
+        if (this.coach) this.setCoach(null); else ls.set('cypress_coached', true);
         store.set({ phase: 'OVER', near: null, final: { score: s.score, best: Math.max(best, s.score), isRecord, ...s.stats } });
         Board.submit({ name: s.profile.name, score: s.score, deliveries: s.stats.deliveries, combo: s.stats.bestCombo, look: s.profile.look, pid: s.profile.pid });
         this.player.setVelocity(0, 0);
@@ -1301,11 +1353,30 @@
         store.set({
           phase: 'PLAYING', score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS, inventory: [i1, i2],
           toast: null, near: null, rush: false, final: null, toledoWait: 0,
-          stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, submit: null,
+          stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, submit: null, paused: false, coach: null,
         });
+        window.__game.scene.resume('MainScene');
         const sc = this.scene(); if (sc) sc.elapsed = 0;
         // Restart the scene so leftovers from the previous round (requests, rivals, items) are cleared
         sc?.scene.restart({ firstItem: i1 });
+      },
+      pause() {
+        if (store.s.phase !== 'PLAYING' || store.s.paused) return;
+        window.virtualStick = { x: 0, y: 0 };
+        window.__game.scene.pause('MainScene');
+        sound.stopBGM();
+        store.set({ paused: true });
+      },
+      resume() {
+        if (!store.s.paused) return;
+        store.set({ paused: false });
+        window.__game.scene.resume('MainScene');
+        sound.startBGM(); sound.rush = store.s.rush;
+      },
+      home() {
+        sound.stopBGM(); sound.click();
+        store.set({ phase: 'START', paused: false, overlay: null, near: null, coach: null, inventory: [], toast: null });
+        const sc = this.scene(); if (sc) { window.__game.scene.resume('MainScene'); sc.scene.restart({}); } // {} = idle street (restart() alone reuses the last game's data)
       },
       chooseHome(id) {
         const profile = { ...store.s.profile, home: id };
@@ -1440,7 +1511,7 @@
     };
 
     // First launch: wizard → customizer. Later launches go straight to the start screen.
-    store.s.overlay = !ls.get('cypress_onboarded', false) ? 'wizard' : !savedProfile ? 'custom' : null;
+    store.s.overlay = savedProfile ? null : 'custom';   // first visit: make your character, then pick a house, then play (tips appear in-game)
 
     function Avatar({ look, size = 40 }) {
       const key = JSON.stringify(look || {});
@@ -1448,7 +1519,7 @@
       return <img src={src} alt="" draggable={false} style={{ width: size, height: size * 64 / 56 }} />;
     }
 
-    function Joystick() {
+    function Joystick({ highlight }) {
       const baseRef = useRef(null);
       const [knob, setKnob] = useState({ x: 0, y: 0 });
       const R = 50;
@@ -1468,7 +1539,7 @@
           onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); move(e); }}
           onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) move(e); }}
           onPointerUp={end} onPointerCancel={end}
-          className={`joystick pointer-events-auto w-32 h-32 rounded-full bg-slate-900/50 border-2 relative backdrop-blur-sm transition-colors ${running ? 'border-orange-400' : 'border-white/25'}`}
+          className={`joystick pointer-events-auto w-32 h-32 rounded-full bg-slate-900/50 border-2 relative backdrop-blur-sm transition-colors ${running ? 'border-orange-400' : 'border-white/25'} ${highlight ? 'ring-4 ring-amber-400 animate-pulse' : ''}`}
           style={{ touchAction: 'none' }}>
           {/* inner ring = walking zone, outside it = running */}
           <div className="absolute inset-[22%] rounded-full border border-dashed border-white/25" />
@@ -1926,6 +1997,64 @@
       );
     }
 
+    // ---------- Home screen ----------
+    function HomeScreen({ s, best, setOverlay, myIdx, myBest }) {
+      useEffect(() => { Board.refresh(); }, []);
+      const btn = 'text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 font-bold';
+      return (
+        <div className="home absolute inset-0 z-40 bg-slate-950/85 flex items-center justify-center p-3 overflow-y-auto">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-6 w-full max-w-4xl my-auto items-center sm:items-stretch">
+            {/* play side */}
+            <div className="flex-1 flex flex-col items-center justify-center text-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-3">
+                <img src="logo.png" alt="" className="start-logo w-14 h-14 sm:w-16 sm:h-16 rounded-2xl shadow-lg" />
+                <h1 className="start-title text-3xl sm:text-5xl font-black text-emerald-300 leading-none">רחוב הברוש <span className="text-white">- המשחק</span></h1>
+              </div>
+              <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-700 rounded-2xl px-3 py-1.5 max-w-full">
+                <Avatar look={s.profile.look} size={40} />
+                <div className="text-right min-w-0">
+                  <div className="font-black text-white truncate">{s.profile.name}</div>
+                  <div className="text-[11px] text-slate-400 truncate">🏠 {s.profile.home ? houseById(s.profile.home)?.who : 'עוד אין בית'} · 🏆 השיא שלך: {best}</div>
+                </div>
+              </div>
+              <button onClick={() => Game.start()}
+                className="start-btn home-play bg-emerald-400 hover:bg-emerald-300 active:scale-95 text-slate-950 font-black text-2xl sm:text-3xl px-14 py-3.5 rounded-full shadow-2xl shadow-emerald-500/40 border-4 border-emerald-200">
+                ▶ {G('שחק', 'שחקי')}
+              </button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button onClick={() => { sound.click(); setOverlay('wizard'); }} className={btn}>❓ איך משחקים</button>
+                <button onClick={() => { sound.click(); setOverlay('custom'); }} className={btn}>✏️ הדמות שלי</button>
+                <button onClick={() => { sound.click(); setOverlay('pickHouse'); }} className={btn}>🏠 החלפת בית</button>
+              </div>
+              {IS_TOUCH && !IS_STANDALONE && !CAN_FULLSCREEN && (
+                <p className="start-hint text-[11px] text-amber-200 bg-amber-950/60 border border-amber-500/40 rounded-xl px-3 py-1">
+                  📲 למסך מלא: <b>שתף ⬆️</b> ← <b>"הוסף למסך הבית"</b>
+                </p>
+              )}
+            </div>
+            {/* leaderboard side — always visible */}
+            <div className="home-board w-full sm:w-80 bg-slate-900/90 border border-amber-500/50 rounded-2xl p-3 flex flex-col min-h-0" style={{ maxHeight: 'min(420px, calc(100dvh - 24px))' }}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-black text-amber-400">🏆 טבלת אלופים</span>
+                <span className="text-[11px] text-slate-300">{myIdx >= 0 ? `${G('אתה', 'את')} במקום ${myIdx + 1}` : ''}</span>
+              </div>
+              <div className="overflow-y-auto custom-scrollbar min-h-0 flex-1 pl-1">
+                <BoardList rows={s.board.rows} max={20} myPid={s.profile.pid} />
+              </div>
+              <BoardNote board={s.board} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // In-game tips, first game only
+    const coachText = (c) => ({
+      move: IS_TOUCH ? `🕹️ ${G('גרור', 'גררי')} את העיגול משמאל כדי לרוץ` : '⌨️ חיצים או WASD כדי לרוץ',
+      deliver: `💚 ${G('רוץ', 'רוצי')} לבית עם הבועה הירוקה — החץ הירוק מראה את הדרך, והמסירה אוטומטית`,
+      source: `👑 אין לך מה שמבקשים? ${G('עקוב', 'עקבי')} אחרי החץ הזהוב לטולדו — יש להם הכל. חלב, ביצים, פסטה ומלפפון יש בבית שלך 🏠`,
+    })[c];
+
     // ---------- App ----------
     function App() {
       const s = useSyncExternalStore(store.sub, store.get);
@@ -1955,7 +2084,7 @@
 
       const toggleSound = () => { sound.muted = !sound.muted; store.set({ muted: sound.muted }); };
       const setOverlay = (o) => store.set({ overlay: o });
-      const closeWizard = () => { ls.set('cypress_onboarded', true); setOverlay(ls.get('cypress_profile', null) ? null : 'custom'); };
+      const closeWizard = () => { ls.set('cypress_onboarded', true); setOverlay(null); };
       const playing = s.phase === 'PLAYING' || s.phase === 'TOLEDO';
       const low = s.timeLeft <= 10;
       const best = ls.get('cypress_best', 0);
@@ -1990,6 +2119,7 @@
               <span className="hidden min-[700px]:flex items-center gap-1 text-slate-300 font-bold max-w-[130px]">
                 <Avatar look={s.profile.look} size={18} /><span className="truncate">{s.profile.name}</span>
               </span>
+              {s.phase === 'PLAYING' && !s.paused && <button onClick={() => Game.pause()} className="pause-btn px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-lg font-black" title="הפסקה">⏸️</button>}
               <button onClick={toggleSound} className="p-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-lg">{s.muted ? '🔇' : '🔊'}</button>
               {CAN_FULLSCREEN && !IS_STANDALONE && !s.fs && (
                 <button onClick={requestFullScreenMode} className={`p-1.5 rounded-lg ${IS_TOUCH ? 'bg-amber-500 text-slate-950 animate-pulse' : 'bg-slate-800/80 hover:bg-slate-700'}`} title="מסך מלא">⛶</button>
@@ -2004,11 +2134,29 @@
 
             <Floaters items={s.floaters} />
 
+            {s.coach && s.phase === 'PLAYING' && !s.paused && (
+              <div className="absolute inset-x-0 top-[40%] z-30 flex justify-center pointer-events-none px-4">
+                <div className="coach bg-amber-300 text-slate-950 font-black text-sm sm:text-lg rounded-2xl px-4 py-2 shadow-2xl border-4 border-white text-center max-w-xl" style={{ animation: 'pop .4s ease-out' }}>
+                  {coachText(s.coach)}
+                </div>
+              </div>
+            )}
+
+            {s.overlay === 'pickHouse' && (
+              <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none px-4">
+                <div className="pick-card bg-slate-950/90 border-4 border-sky-400 rounded-3xl px-5 py-3 text-center shadow-2xl max-w-lg" style={{ animation: 'pop .4s ease-out' }}>
+                  <div className="text-2xl sm:text-4xl font-black text-white">🏠 {G('איפה אתה גר?', 'איפה את גרה?')}</div>
+                  <div className="text-sm sm:text-base text-sky-200 font-bold mt-1">👆 {G('לחץ', 'לחצי')} על אחד הבתים ברחוב 👇</div>
+                  <div className="text-[11px] sm:text-xs text-slate-400 mt-1">משם {G('תצא', 'תצאי')} לכל משחק, ושם {G('תמצא', 'תמצאי')} חלב, ביצים, פסטה ומלפפון</div>
+                </div>
+              </div>
+            )}
+
             {/* Touch controls sit in the empty space beside the canvas on landscape phones */}
-            {IS_TOUCH && s.phase === 'PLAYING' && (
+            {IS_TOUCH && s.phase === 'PLAYING' && !s.paused && (
               <div className="absolute inset-0 pointer-events-none z-20 flex justify-between items-end"
                 style={{ padding: '0 max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left))', direction: 'ltr' }}>
-                <Joystick />
+                <Joystick highlight={s.coach === 'move'} />
                 <button onPointerDown={(e) => { e.preventDefault(); Game.action(); }}
                   className={`action-btn pointer-events-auto w-20 h-20 text-slate-950 font-black rounded-full shadow-2xl flex flex-col items-center justify-center border-4 transition ${s.near === 'toledo' ? 'bg-amber-400 border-amber-200 scale-110' : s.near === 'home' ? 'bg-sky-400 border-sky-200 scale-110' : 'bg-emerald-500/85 border-emerald-300/70'}`}>
                   <span className="text-2xl leading-none">{actionLabel[0]}</span>
@@ -2048,40 +2196,8 @@
             )}
           </footer>
 
-          {/* ===== START SCREEN ===== */}
-          {s.phase === 'START' && !s.overlay && (
-            <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center p-3 text-center z-40 overflow-y-auto [&>*:first-child]:mt-auto [&>*:last-child]:mb-auto">
-              <h1 className="start-title text-4xl sm:text-6xl font-black text-emerald-400 mb-1 drop-shadow-lg flex items-center gap-3">
-                <img src="logo.png" alt="" className="start-logo w-12 h-12 sm:w-16 sm:h-16 rounded-2xl shadow-lg" />
-                <span>רחוב הברוש <span className="text-white/90">- המשחק</span></span>
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-300 mb-3">קיבוץ דפנה · 3 דקות · כמה שכנים {G('תספיק', 'תספיקי')} לעזור?</p>
-              <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-700 rounded-2xl px-3 py-1.5 mb-3">
-                <Avatar look={s.profile.look} size={40} />
-                <div className="text-right">
-                  <div className="font-black text-white">{s.profile.name}</div>
-                  <div className="text-[11px] text-slate-400">🏠 {s.profile.home ? houseById(s.profile.home)?.who : 'עוד אין בית'} · השיא שלך: {best}</div>
-                </div>
-                <button onClick={() => { sound.click(); setOverlay('custom'); }} className="text-xs bg-sky-700 hover:bg-sky-600 rounded-xl px-3 py-1.5 font-bold">✏️ ערוך דמות</button>
-              </div>
-              <button onClick={() => Game.start()}
-                className="start-btn bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xl sm:text-2xl px-10 py-3 rounded-full shadow-2xl transition transform active:scale-95">
-                התחל משחק! 🚀
-              </button>
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => { sound.click(); setOverlay('board'); }} className="text-xs bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 font-bold">🏆 טבלת אלופים</button>
-                <button onClick={() => { sound.click(); setOverlay('pickHouse'); }} className="text-xs bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 font-bold">🏠 החלף בית</button>
-                <button onClick={() => { sound.click(); setOverlay('wizard'); }} className="text-xs bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 font-bold">❓ איך משחקים</button>
-              </div>
-              {IS_TOUCH && !IS_STANDALONE && (
-                CAN_FULLSCREEN
-                  ? <p className="start-hint text-[11px] text-slate-400 mt-3">📺 המשחק עובר למסך מלא (בלי שורת כתובת) כשלוחצים "התחל"</p>
-                  : <p className="start-hint text-xs text-amber-200 mt-3 bg-amber-950/60 border border-amber-500/40 rounded-xl px-3 py-1.5">
-                      📲 {IS_IOS ? 'באייפון' : 'בדפדפן הזה'} אפשר להסתיר את שורת הכתובת רק מהמסך הבית: לחצו <b>שתף ⬆️</b> ← <b>"הוסף למסך הבית"</b>
-                    </p>
-              )}
-            </div>
-          )}
+          {/* ===== HOME SCREEN: play, your character, and the leaderboard always in view ===== */}
+          {s.phase === 'START' && !s.overlay && !s.intro && <HomeScreen s={s} best={best} setOverlay={setOverlay} myIdx={myIdx} myBest={myBest} />}
 
           {/* ===== GAME OVER ===== */}
           {s.phase === 'OVER' && s.final && !s.overlay && (
@@ -2103,9 +2219,8 @@
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => Game.start()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg px-7 py-2.5 rounded-full shadow-2xl active:scale-95">שחק שוב 🔄</button>
-                    <button onClick={() => { sound.click(); setOverlay('pickHouse'); }} className="bg-slate-800 border border-slate-600 text-sm font-bold px-4 rounded-full">🏠 בית</button>
-                    <button onClick={() => { sound.click(); setOverlay('custom'); }} className="bg-slate-800 border border-slate-600 text-sm font-bold px-4 rounded-full">✏️ דמות</button>
+                    <button onClick={() => Game.start()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg px-7 py-2.5 rounded-full shadow-2xl active:scale-95">{G('שחק', 'שחקי')} שוב 🔄</button>
+                    <button onClick={() => Game.home()} className="go-home bg-slate-800 hover:bg-slate-700 border border-slate-600 text-sm font-bold px-5 rounded-full">🏠 מסך הבית</button>
                   </div>
                 </div>
                 <div className="w-full sm:w-72 bg-slate-900/90 border border-amber-500/50 rounded-2xl p-3 flex flex-col">
@@ -2138,6 +2253,9 @@
                 {s.toledoWait > 0 ? (
                   <div className="py-3 space-y-2">
                     <p className="text-slate-200 text-sm animate-pulse">☕ טולדו מוזג קפה ומספר על הימים הראשונים בדפנה...</p>
+                    {Object.keys(s.requests).length > 0 && (
+                      <p className="text-xs text-amber-200">🎯 מבקשים עכשיו ברחוב: <span className="text-lg">{Object.keys(s.requests).map(id => ITEMS[id]?.icon).join(' ')}</span></p>
+                    )}
                     <div className="text-4xl font-black text-amber-500 font-mono">{s.toledoWait}</div>
                     <button onClick={() => Game.skipToledo()} disabled={s.favors < 1}
                       className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs px-4 py-2 rounded-xl font-bold shadow-lg">
@@ -2148,13 +2266,18 @@
                   <div>
                     <p className="text-xs text-slate-300 mb-2">{G('בחר', 'בחרי')} חפצים ({s.inventory.length}/3):</p>
                     <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-48 overflow-y-auto p-1 custom-scrollbar">
-                      {ITEM_LIST.map(item => (
-                        <button key={item.id} onClick={() => Game.pickToledo(item)}
-                          className="bg-slate-800 border border-slate-700 hover:border-amber-500 p-1.5 rounded-xl flex flex-col items-center active:scale-95">
-                          <span className="text-2xl">{item.icon}</span>
-                          <span className="text-[9px] font-bold text-slate-200 leading-tight">{item.name}</span>
-                        </button>
-                      ))}
+                      {[...ITEM_LIST].sort((a, b) => (s.requests[b.id] ? 1 : 0) - (s.requests[a.id] ? 1 : 0)).map(item => {
+                        const who = s.requests[item.id];
+                        const have = s.inventory.some(i => i.id === item.id);
+                        return (
+                          <button key={item.id} onClick={() => Game.pickToledo(item)}
+                            className={`toledo-item relative p-1.5 rounded-xl flex flex-col items-center active:scale-95 border-2 ${who && !have ? 'bg-amber-900/70 border-amber-400 shadow-lg shadow-amber-500/30' : 'bg-slate-800 border-slate-700 hover:border-amber-500'}`}>
+                            <span className="text-2xl">{item.icon}</span>
+                            <span className="text-[9px] font-bold text-slate-200 leading-tight">{item.name}</span>
+                            {who && <span className={`text-[8px] font-black mt-0.5 rounded px-1 ${have ? 'bg-emerald-600 text-white' : 'bg-amber-400 text-slate-950'}`}>{have ? '✔ בתיק' : `📢 ${who[0]}`}</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -2166,19 +2289,29 @@
             </div>
           )}
 
+          {/* ===== PAUSE ===== */}
+          {s.paused && (
+            <div className="absolute inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-3">
+              <div className="compact-pad bg-slate-900 border-2 border-sky-500 rounded-3xl p-5 w-full max-w-xs text-center space-y-2 shadow-2xl">
+                <div className="text-2xl font-black text-sky-300">⏸️ הפסקה</div>
+                <div className="text-xs text-slate-400">השעון עצר. השכנים מחכים 😉</div>
+                <button onClick={() => Game.resume()} className="resume-btn w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg">▶ {G('המשך', 'המשיכי')} לשחק</button>
+                <button onClick={() => Game.start()} className="w-full py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold">🔄 משחק חדש</button>
+                <button onClick={() => Game.home()} className="w-full py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold">🏠 מסך הבית</button>
+              </div>
+            </div>
+          )}
+
           {/* ===== PICK YOUR HOUSE (banner only — the street stays visible and tappable) ===== */}
           {s.overlay === 'pickHouse' && (
             <div className="safe-x absolute top-0 inset-x-0 h-10 sm:h-11 z-40 bg-sky-700 border-b-2 border-sky-300 flex items-center justify-center gap-3 shadow-2xl">
-              <span className="text-sm sm:text-base font-black text-white animate-pulse">🏠 {G('איפה אתה גר? לחץ', 'איפה את גרה? לחצי')} על הבית שלך ברחוב 👇</span>
+              <span className="text-sm sm:text-base font-black text-white">{G('בחר', 'בחרי')} בית ברחוב 👇</span>
               {s.profile.home && <button onClick={() => { sound.click(); setOverlay(null); }} className="text-xs bg-sky-900 rounded-lg px-3 py-1 font-bold">ביטול</button>}
             </div>
           )}
 
           {/* ===== OVERLAYS ===== */}
-          {s.intro && <WhatsAppIntro onDone={() => {
-            store.set({ intro: false });
-            if (!store.s.overlay && store.s.profile.home) Game.start();
-          }} />}
+          {s.intro && <WhatsAppIntro onDone={() => store.set({ intro: false })} />}
           {s.overlay === 'wizard' && <Wizard onClose={closeWizard} />}
           {s.overlay === 'custom' && <Customizer onClose={() => setOverlay(null)} />}
           {s.overlay === 'board' && <LeaderboardModal onClose={() => setOverlay(null)} />}
