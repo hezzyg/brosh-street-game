@@ -177,12 +177,21 @@
         hairColor: pick(LOOK.hairColor), skin: pick(LOOK.skin), outfit: pick(LOOK.outfit).id, hat: pick(['none', 'none', 'tembel', 'cap']),
       };
     };
-    const NAMES = {
-      m: ['צביקה', 'דודו', 'יוסי', 'איתי', 'גלעד', 'עמרי', 'שמוליק', 'אורי', 'בועז', 'נמרוד'],
-      f: ['שולה', 'מיכל', 'נועה', 'רותי', 'תמר', 'יעל', 'דפנה', 'אורנה', 'ליאת', 'חגית'],
+    // ---------- The people of Cypress Street — the ONLY names used in the game and the WhatsApp intro ----------
+    const NAME_MAX = 24;
+    const PEOPLE = [
+      'שיר לנגליב ג׳וניור', 'פרן כהן', 'אופיר גרשוני', 'ירדן ולק', 'נועם פינטל', 'רן ינון', 'לילי ולק', 'איציק טולדו',
+      'שביט טולדו', 'רון אייל', 'לירן שוורץ', 'עדי לנגליב', 'לירן לנגליב', 'מור שירי', 'נועם שירי', 'בת סבג',
+      'רותם נג׳ר', 'חזי גרשוני', 'אור ישראלי', 'שרון בן יוסף', 'מורן כהן', 'ליאור חכים', 'עינת חכים',
+    ];
+    // Players can type ANY name. Defaults/suggestions are playful nicknames — the real neighbours' names
+    // above are reserved for the WhatsApp intro and the rival runners.
+    const NICKNAMES = {
+      m: ['השכן החדש', 'אלוף הקלנועית', 'המתנדב מהרפת', 'מלך המטקות', 'נהג הטרקטור', 'השליח המהיר', 'צ׳יף חדר האוכל', 'הבן של השכנים', 'שומר הפלמינגו', 'אלוף השש-בש'],
+      f: ['השכנה החדשה', 'אלופת הקלנועית', 'המתנדבת מהרפת', 'מלכת המטקות', 'נהגת הטרקטור', 'השליחה המהירה', 'שפית חדר האוכל', 'הבת של השכנים', 'שומרת הפלמינגו', 'אלופת השש-בש'],
     };
-    const PLACES = ['מהרפת', 'מהלול', 'מהמכבסה', 'מהבריכה', 'מהמטבח', 'מהפרדס', 'מהמוסך', 'מהגן'];
-    const randomName = (g = 'm') => `${pick(NAMES[g] || NAMES.m)} ${pick(PLACES)}`.slice(0, 16);
+    const randomName = (g = 'm') => pick(NICKNAMES[g === 'f' ? 'f' : 'm']);
+    const randomNames = (g, n) => [...NICKNAMES[g === 'f' ? 'f' : 'm']].sort(() => Math.random() - 0.5).slice(0, n);
 
     // Front-facing kibbutznik built from a look
     const person = (look) => {
@@ -499,8 +508,14 @@
       S: [['pintel-yanon', 'פינטל-ינון'], ['gershoni', 'גרשוני'], ['valk', 'ולק'], ['najar-sabag', 'נג׳ר-סבג'], ['shiri', 'שירי'], ['langleib', 'לנגליב']],
     };
     const HOUSE_SKINS = ['house_a', 'house_b', 'house_c', 'house_d', 'house_e', 'house_f'];
+    const RESIDENTS = {
+      'toledo': ['איציק טולדו', 'שביט טולדו'], 'eyal-schwartz': ['רון אייל', 'לירן שוורץ'], 'langleib-jr': ['שיר לנגליב ג׳וניור'],
+      'israeli': ['אור ישראלי'], 'hakim': ['ליאור חכים', 'עינת חכים'], 'cohen': ['פרן כהן', 'מורן כהן'],
+      'pintel-yanon': ['נועם פינטל', 'רן ינון'], 'gershoni': ['אופיר גרשוני', 'חזי גרשוני'], 'valk': ['ירדן ולק', 'לילי ולק'],
+      'najar-sabag': ['בת סבג', 'רותם נג׳ר'], 'shiri': ['מור שירי', 'נועם שירי'], 'langleib': ['עדי לנגליב', 'לירן לנגליב'],
+    };
     const HOUSES_DATA = ['N', 'S'].flatMap((side, si) => STREET[side].map(([id, family], i) => ({
-      id, family, side, x: HOUSE_X[i], y: side === 'N' ? 100 : 505,
+      id, family, side, x: HOUSE_X[i], y: side === 'N' ? 100 : 505, people: RESIDENTS[id] || [],
       name: id === 'toledo' ? 'אחוזת טולדו 👑' : family,
       who: `משפחת ${family}`,
       isToledo: id === 'toledo',
@@ -521,7 +536,6 @@
       { key: 'cow', name: 'פרה בורחת', speed: 80 },
       { key: 'bamba', name: 'במבה שנשפכה', speed: 0, obstacle: true },
     ];
-    const RIVALS = [{ n: 'שמעון' }, { n: 'רונית', f: true }, { n: 'אבנר' }, { n: 'תמר', f: true }, { n: 'צביקה' }, { n: 'אורנה', f: true }];
 
     const hebText = (size, color = '#ffffff', extra = {}) => ({
       fontFamily: 'Rubik, sans-serif', fontSize: size + 'px', fontStyle: 'bold', color, rtl: true, ...extra,
@@ -903,7 +917,7 @@
           this.physics.velocityFromRotation(angle, 115, ai.body.velocity);
           ai.setFlipX(ai.body.velocity.x < 0);
           if (Phaser.Math.Distance.Between(ai.x, ai.y, h.doorX, h.doorY) < 18) {
-            this.failRequest(h, `😱 ${ai.rival.n} ${ai.rival.f ? 'הקדימה' : 'הקדים'} אותך ל${h.who}!`);
+            this.failRequest(h, `😱 ${ai.rivalName} לפניך! ${h.who} כבר קיבלו ${h.currentRequest.item.icon}`);
             this.removeRival(ai, false);
           }
         });
@@ -1043,12 +1057,12 @@
         const ai = this.aiRunners.create(src.doorX, src.doorY, `ai_${Math.floor(Math.random() * 4)}`).setScale(0.8);
         ai.body.setSize(30, 18).setOffset(13, 44);
         ai.targetHouse = house; ai.req = house.currentRequest; ai.stun = 0;
-        ai.rival = pick(RIVALS);
+        ai.rivalName = src.people.length ? pick(src.people) : pick(PEOPLE.filter(n => !n.includes('טולדו')));
         ai.carry = this.add.text(ai.x, ai.y - 40, house.currentRequest.item.icon, { fontSize: '20px', padding: { x: 1, y: 3 } }).setOrigin(0.5);
         house.rival.setVisible(true);
         this.tweens.add({ targets: house.rival, scale: { from: 1.6, to: 1 }, duration: 300 });
         sound.alert();
-        toast(`⚠️ ${ai.rival.n} ${ai.rival.f ? 'רצה' : 'רץ'} להביא ${house.currentRequest.item.icon} ל${house.who}!`, 'bad');
+        toast(`⚠️ ${ai.rivalName} בדרך ל${house.who} עם ${house.currentRequest.item.icon}!`, 'bad');
       }
 
       removeRival(ai, sulk) {
@@ -1542,7 +1556,7 @@
     // and while it is open the game stops listening to the keyboard (it used to swallow Space/W/A/S/D/arrows)
     // and pauses rendering, so nothing re-lays out under the keyboard.
     function NameEditor({ value, gender, inputRef, onChange, onDone }) {
-      const [ideas, setIdeas] = useState(() => Array.from({ length: 3 }, () => randomName(gender)));
+      const [ideas, setIdeas] = useState(() => randomNames(gender, 3));
       useEffect(() => {
         document.body.classList.add('typing');
         const g = window.__game;
@@ -1558,7 +1572,7 @@
           <div className="w-full max-w-xl px-3" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
             <div className="text-sky-300 font-black text-sm mb-1 text-center">✏️ איך קוראים לך ברחוב?</div>
             <form onSubmit={(e) => { e.preventDefault(); onDone(); }} className="flex gap-2">
-              <input ref={inputRef} value={value} maxLength={16} dir="rtl"
+              <input ref={inputRef} value={value} maxLength={NAME_MAX} dir="rtl"
                 onChange={(e) => onChange(e.target.value)}
                 enterKeyHint="done" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 className="name-input flex-1 min-w-0 bg-slate-800 border-2 border-sky-400 rounded-xl px-3 py-2 text-lg font-bold text-white outline-none" />
@@ -1570,9 +1584,9 @@
                 <button key={n} onClick={() => { sound.click(); onChange(n); onDone(n); }}
                   className="name-chip text-xs bg-slate-800 border border-slate-600 rounded-full px-3 py-1 font-bold">{n}</button>
               ))}
-              <button onMouseDown={(e) => e.preventDefault()} onClick={() => { sound.click(); setIdeas(Array.from({ length: 3 }, () => randomName(gender))); }}
+              <button onMouseDown={(e) => e.preventDefault()} onClick={() => { sound.click(); setIdeas(randomNames(gender, 3)); }}
                 className="text-xs bg-slate-800 border border-slate-600 rounded-full px-2.5 py-1">🎲</button>
-              <span className="text-[10px] text-slate-500 mr-1">{value.length}/16</span>
+              <span className="text-[10px] text-slate-500 mr-1">{value.length}/{NAME_MAX}</span>
             </div>
           </div>
         </div>
@@ -1588,7 +1602,7 @@
       const openName = () => { ReactDOM.flushSync(() => setEditingName(true)); nameRef.current?.focus(); };
       const doneName = (picked) => {
         setEditingName(false);
-        setP(prev => ({ ...prev, name: ((typeof picked === 'string' ? picked : prev.name) || '').trim().slice(0, 16) || randomName(prev.look.gender) }));
+        setP(prev => ({ ...prev, name: ((typeof picked === 'string' ? picked : prev.name) || '').trim().slice(0, NAME_MAX) || randomName(prev.look.gender) }));
         nameRef.current?.blur();
       };
       const look = p.look;
@@ -1597,7 +1611,7 @@
         name: k === 'gender' && !nameTouched ? randomName(v) : prev.name,
       }));
       const save = () => {
-        const prof = { ...p, name: (p.name || '').trim().slice(0, 16) || randomName(look.gender) };
+        const prof = { ...p, name: (p.name || '').trim().slice(0, NAME_MAX) || randomName(look.gender) };
         ls.set('cypress_profile', prof);
         store.set({ profile: prof });
         refreshPlayerTexture();
@@ -1696,40 +1710,41 @@
     const P = (from, f, text, extra = {}) => ({ from, f, text, ...extra });
     const INTRO = [
       { time: [7, 58], msgs: [
-        P('נועה גרשוני', 1, 'בוקר טוב שכנים ☀️ למישהו יש שמנת לבישול? באמצע רוטב 🙈'),
-        P('איתי חכים', 0, 'יש לי! 🙋‍♂️'),
-        P('שולה ולק', 1, 'גם לי יש, שלחי מישהו'),
-        P('צביקה כהן', 0, 'לטולדו יש. תבקשי מהם 😏', { toledo: true }),
-        P('איתי חכים', 0, '😂😂😂', { laugh: true }),
-        P('שולה ולק', 1, '🤣🤣', { laugh: true }),
-        P('נועה גרשוני', 1, 'איתי אתה מלך 🙏❤️', { quote: ['איתי חכים', 'יש לי! 🙋‍♂️'] }),
+        P('בת סבג', 1, 'בוקר טוב שכנים ☀️ למישהו יש שמנת לבישול? באמצע רוטב 🙈'),
+        P('אופיר גרשוני', 0, 'יש לי! 🙋'),
+        P('לילי ולק', 1, 'גם לי יש, שלחי מישהו'),
+        P('רון אייל', 0, 'לטולדו יש. תבקשי מהם 😏', { toledo: true }),
+        P('אופיר גרשוני', 0, '😂😂😂', { laugh: true }),
+        P('לילי ולק', 1, '🤣🤣', { laugh: true }),
+        P('בת סבג', 1, 'אופיר, תודה ענקית 🙏❤️', { quote: ['אופיר גרשוני', 'יש לי! 🙋'] }),
       ] },
       { time: [10, 41], msgs: [
-        P('גלעד נג׳ר-סבג', 0, 'דחוף!! למישהו יש מסור? עץ נפל על הקלנועית 🌳🛺'),
-        P('מיכל שירי', 1, 'יש לי, של אבא שלי משנות ה-80 😅'),
-        P('עמרי לנגליב', 0, 'לי יש חשמלי 💪 בדרך'),
-        P('רותי פינטל-ינון', 1, 'טולדו בטוח מחזיקים כזה. אולי שלושה 👑', { toledo: true }),
-        P('מיכל שירי', 1, '😂😂', { laugh: true }),
-        P('עמרי לנגליב', 0, '🤣🤣🤣', { laugh: true }),
-        P('גלעד נג׳ר-סבג', 0, 'עמרי אלוף 🙏🙏', { quote: ['עמרי לנגליב', 'לי יש חשמלי 💪 בדרך'] }),
+        P('רן ינון', 0, 'דחוף!! למישהו יש מסור? עץ נפל על הקלנועית 🌳🛺'),
+        P('מור שירי', 1, 'יש לי, משנות ה-80 אבל עובד 😅'),
+        P('לירן לנגליב', 0, 'לי יש חשמלי 💪 בדרך'),
+        P('נועם פינטל', 0, 'טולדו בטוח מחזיקים כזה. אולי שלושה 👑', { toledo: true }),
+        P('מור שירי', 1, '😂😂', { laugh: true }),
+        P('לירן לנגליב', 0, '🤣🤣🤣', { laugh: true }),
+        P('רן ינון', 0, 'לירן, אין עליך 🙏🙏', { quote: ['לירן לנגליב', 'לי יש חשמלי 💪 בדרך'] }),
       ] },
       { time: [14, 12], msgs: [
-        P('ליאת אייל-שוורץ', 1, 'למישהו יש אקמול? הילדים חזרו מהגן 🤒'),
-        P('בועז ישראלי', 0, 'יש, משאיר לך על הדלת'),
-        P('דפנה לנגליב ג׳וניור', 1, 'גם לי יש 💊'),
-        P('יוסי ולק', 0, 'תשאלי את טולדו, יש להם בית מרקחת שלם', { toledo: true }),
-        P('בועז ישראלי', 0, '😂😂😂', { laugh: true }),
-        P('דפנה לנגליב ג׳וניור', 1, '🤣', { laugh: true }),
-        P('ליאת אייל-שוורץ', 1, 'בועז תודה ❤️🙏', { quote: ['בועז ישראלי', 'יש, משאיר לך על הדלת'] }),
+        P('עינת חכים', 1, 'למישהו יש אקמול? הילדים חזרו מהגן 🤒'),
+        P('אור ישראלי', 0, 'יש, שמתי לך על הדלת 💊'),
+        P('שיר לנגליב ג׳וניור', 1, 'גם לי יש אם צריך עוד'),
+        P('פרן כהן', 1, 'תשאלי את טולדו, יש להם בית מרקחת שלם', { toledo: true }),
+        P('אור ישראלי', 0, '😂😂😂', { laugh: true }),
+        P('שיר לנגליב ג׳וניור', 1, '🤣', { laugh: true }),
+        P('עינת חכים', 1, 'אור תודה ❤️🙏', { quote: ['אור ישראלי', 'יש, שמתי לך על הדלת 💊'] }),
       ] },
       { time: [19, 27], msgs: [
-        P('אורנה כהן', 1, 'שאלה מוזרה… למישהו יש פלמינגו מפלסטיק? אל תשאלו למה 🦩'),
-        P('שמוליק גרשוני', 0, '😳 דווקא יש'),
-        P('תמר שירי', 1, 'גם לי! מה זה הטרנד הזה?'),
-        P('נמרוד חכים', 0, 'לטולדו יש עשרה. ראיתי במחסן 👑', { toledo: true }),
-        P('שמוליק גרשוני', 0, '😂😂😂', { laugh: true }),
-        P('תמר שירי', 1, '🤣🤣🤣', { laugh: true }),
-        P('אורנה כהן', 1, 'שמוליק הצלת אותי 🦩❤️', { quote: ['שמוליק גרשוני', '😳 דווקא יש'] }),
+        P('חזי גרשוני', 0, 'שאלה מוזרה… למישהו יש פלמינגו מפלסטיק? אל תשאלו למה 🦩'),
+        P('רותם נג׳ר', 0, '😳 דווקא יש'),
+        P('נועם שירי', 0, 'גם לי! מה זה הטרנד הזה?'),
+        P('ליאור חכים', 0, 'לטולדו יש עשרה. ראיתי במחסן 👑', { toledo: true }),
+        P('מורן כהן', 1, '😂😂😂', { laugh: true }),
+        P('ירדן ולק', 0, '🤣🤣🤣', { laugh: true }),
+        P('איציק טולדו', 0, 'חחח נכון. תבואו, יש קפה ☕'),
+        P('חזי גרשוני', 0, 'רותם, הצלת אותי 🦩❤️', { quote: ['רותם נג׳ר', '😳 דווקא יש'] }),
       ] },
     ];
     const WA_COLORS = ['#e542a3', '#1f7aec', '#d97706', '#7c3aed', '#059669', '#dc2626', '#0891b2', '#c026d3', '#65a30d'];
@@ -1808,7 +1823,7 @@
         );
       }
 
-      const subtitle = typing ? `${typing.from.split(' ')[0]} ${typing.f ? 'מקלידה' : 'מקליד'}...` : 'טולדו, אייל-שוורץ, גרשוני, ולק, חכים, כהן, שירי ועוד 21';
+      const subtitle = typing ? `${typing.from.split(' ')[0]} מקליד/ה...` : 'איציק, שביט, שרון, לירן, עדי, אופיר, חזי ועוד 16';
       return (
         <div className={`wa-intro fixed inset-0 z-[90] flex flex-col transition-opacity duration-700 ${stage === 'fade' ? 'opacity-0' : 'opacity-100'}`}
           style={{ background: '#efeae2', fontFamily: "'Segoe UI', Rubik, Helvetica, Arial, sans-serif" }}>
