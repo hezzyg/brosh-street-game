@@ -464,6 +464,18 @@
     }
     const sound = new SoundEngine();
 
+    // Silence everything while the player is away (switched app/tab, locked phone, other window focused);
+    // pick up again when they return. Suspending the AudioContext also drops queued notes, so nothing bursts on return.
+    const syncAudioToFocus = () => {
+      const ctx = sound.ctx;
+      if (!ctx || ctx.state === 'closed') return;
+      const away = document.hidden || !document.hasFocus();
+      if (away && ctx.state === 'running') ctx.suspend().catch(() => {});
+      else if (!away && ctx.state !== 'running') ctx.resume().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', syncAudioToFocus);
+    ['blur', 'focus', 'pagehide', 'pageshow'].forEach(ev => window.addEventListener(ev, syncAudioToFocus));
+
     // ================= GAME DATA =================
     const ITEMS = {
       // basics — always at your home
