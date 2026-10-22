@@ -68,6 +68,8 @@
       100% { bottom: 105%; opacity: 0; transform: scale(.9); }
     }
     @keyframes sway { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+    @keyframes tourRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(252,211,77,.7); } 50% { box-shadow: 0 0 0 10px rgba(252,211,77,0); } }
+    .tour-ring { animation: tourRing 1.2s ease-out infinite; }
     .floater { animation: floatUp 2.6s cubic-bezier(.3,.1,.6,1) forwards; }
     .floater-sway { animation: sway .7s ease-in-out infinite; }
     @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
@@ -154,7 +156,7 @@
         score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS,
         inventory: [], toast: null, near: null, toledoWait: 0, rush: false, muted: false,
         stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, final: null,
-        profile: null, overlay: null, wanted: {}, requests: {}, intro: true, floaters: [], paused: false, coach: null, board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
+        profile: null, overlay: null, wanted: {}, requests: {}, tourStep: null, intro: true, floaters: [], paused: false, coach: null, board: { status: 'idle', rows: [], local: true }, submit: null, fs: false,
       },
       subs: new Set(),
       get: () => store.s,
@@ -652,9 +654,14 @@
         this.toledoWait = 0;
 
         this.coach = null;
-        if (data.firstItem && !ls.get('cypress_coached', false)) {
-          this.coachFrom = { x: startX, y: startY };
-          this.time.delayedCall(900, () => this.setCoach('move'));
+        if (data.firstItem && data.tour) {
+          // Tour: the street waits (no clock) — one request you can serve (green) and one only Toledo has
+          this.spawnHouseRequest(data.firstItem, { noAI: true, duration: 32, quiet: true });
+          const inv = store.s.inventory;
+          const other = pick(ITEM_LIST.filter(i => !i.basic && !inv.some(x => x.id === i.id)));
+          this.spawnHouseRequest(other, { noAI: true, duration: 45, quiet: true });
+          this.reqTimer = 6;
+          return;
         }
         if (data.firstItem && home) {
           // Come out of your own front door
@@ -763,6 +770,14 @@
 
       homeHouse() { return this.houses.find(h => h.isPlayerHome); }
 
+      // Tour finished → the clock starts now
+      startRun() {
+        this.popText(W / 2, H / 2, 'יאללה! 🏃', '#34d399', 54);
+        sound.rushStart();
+        const green = this.houses.find(h => h.currentRequest && store.s.inventory.some(i => i.id === h.currentRequest.item.id));
+        if (green) toast(`👋 ${G('רוץ', 'רוצי')} לבית הירוק — יש לך ${green.currentRequest.item.icon} ${green.currentRequest.item.name}!`, 'good');
+      }
+
       // First game only: short contextual tips (move → deliver → fetch from Toledo/home)
       setCoach(c) {
         this.coach = c;
@@ -823,7 +838,11 @@
 
         const phase = store.s.phase;
         const running = phase === 'PLAYING' || phase === 'TOLEDO';
-        if (!running) { this.player.setVelocity(0, 0); this.prompt.setVisible(false); this.aiRunners.setVelocity(0, 0); return; }
+        if (!running) {
+          this.player.setVelocity(0, 0); this.prompt.setVisible(false); this.aiRunners.setVelocity(0, 0);
+          if (phase === 'TOUR') { this.updateRequests(0); this.updateGuide(time); } // keep the green highlights live for the tour
+          return;
+        }
 
         // --- clock ---
         this.elapsed += dt;
@@ -1117,6 +1136,7 @@
         house.bubble.setVisible(true).setScale(0);
         this.tweens.add({ targets: house.bubble, scale: 1, duration: 350, ease: 'Back.out' });
         house.aura.setVisible(true);
+        if (opts.quiet) return;
         this.speech(house, item.ask);
         const have = store.s.inventory.some(i => i.id === item.id);
         store.set(st => ({ floaters: [...st.floaters.slice(-3), { id: Math.random(), icon: item.icon, name: item.name, family: house.family, have }] }));
@@ -1342,8 +1362,9 @@
     // ================= GAME API (React → Phaser) =================
     const Game = {
       scene: () => window.__game?.scene?.getScene('MainScene'),
-      async start() {
+      async start(forceTour = false) {
         if (!store.s.profile.home) return store.set({ overlay: 'pickHouse', pendingStart: true }); // pick your house first
+        const tour = forceTour === true || !ls.get('cypress_toured', false);  // first game (or "how to play") = guided tour first
         requestFullScreenMode();               // must run synchronously inside the tap
         sound.init(); sound.stopBGM(); sound.startBGM();
         store.set({ overlay: null });
@@ -1351,14 +1372,20 @@
         const shuffled = [...ITEM_LIST].sort(() => Math.random() - 0.5);
         const [i1, i2] = shuffled;
         store.set({
-          phase: 'PLAYING', score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS, inventory: [i1, i2],
+          phase: tour ? 'TOUR' : 'PLAYING', tourStep: 0, score: 0, favors: 1, combo: 1, timeLeft: ROUND_SECONDS, inventory: [i1, i2],
           toast: null, near: null, rush: false, final: null, toledoWait: 0,
           stats: { deliveries: 0, bestCombo: 1, missed: 0, hits: 0 }, submit: null, paused: false, coach: null,
         });
         window.__game.scene.resume('MainScene');
         const sc = this.scene(); if (sc) sc.elapsed = 0;
         // Restart the scene so leftovers from the previous round (requests, rivals, items) are cleared
-        sc?.scene.restart({ firstItem: i1 });
+        sc?.scene.restart({ firstItem: i1, tour });
+      },
+      beginRun() {
+        ls.set('cypress_toured', true);
+        sound.click();
+        store.set({ phase: 'PLAYING', tourStep: null });
+        this.scene()?.startRun();
       },
       pause() {
         if (store.s.phase !== 'PLAYING' || store.s.paused) return;
@@ -1997,6 +2024,128 @@
       );
     }
 
+    // ---------- First-game spotlight tour (the clock waits until it's done) ----------
+    function Tour({ step }) {
+      const [, tick] = useState(0);
+      const cardRef = useRef(null);
+      const [measured, setMeasured] = useState(-1);   // step whose card height is known → only then show it (no jumping)
+      React.useLayoutEffect(() => { if (cardRef.current && measured !== step) setMeasured(step); });
+      useEffect(() => {   // follow layout changes / animations
+        const id = setInterval(() => tick(n => n + 1), 200);
+        const r = () => tick(n => n + 1); window.addEventListener('resize', r);
+        return () => { clearInterval(id); window.removeEventListener('resize', r); };
+      }, []);
+      const sc = Game.scene();
+      const canvas = document.querySelector('#phaser-container canvas');
+      const world = (x, y, w, h) => {
+        if (!canvas) return null;
+        const r = canvas.getBoundingClientRect(), k = r.width / W;
+        return { x: r.left + (x - w / 2) * k, y: r.top + (y - VIEW_Y - h / 2) * k, w: w * k, h: h * k };
+      };
+      const dom = (sel, pad = 6) => {
+        const el = document.querySelector(sel); if (!el) return null;
+        const r = el.getBoundingClientRect(); return { x: r.left - pad, y: r.top - pad, w: r.width + pad * 2, h: r.height + pad * 2 };
+      };
+      const houses = sc?.houses || [];
+      const inv = store.s.inventory;
+      const green = houses.find(h => h.currentRequest && inv.some(i => i.id === h.currentRequest.item.id));
+      const asking = houses.find(h => h.currentRequest && h !== green);
+      const toledo = houses.find(h => h.isToledo), home = houses.find(h => h.isPlayerHome);
+      const bubble = (h) => h && world(h.x, h.bubbleY + (h.side === 'N' ? 17 : -17), 140, 168);
+      const houseBox = (h) => h && world(h.x, h.y + (h.side === 'N' ? 10 : -10), 172, 152);
+      const p = sc?.player;
+
+      const steps = [
+        {
+          title: '🕹️ ככה זזים',
+          text: IS_TOUCH
+            ? `${G('גרור', 'גררי')} את העיגול כדי לרוץ — ככל ${G('שתמשוך', 'שתמשכי')} חזק יותר, ${G('תרוץ', 'תרוצי')} מהר יותר. הכפתור 🖐️ פותח דלתות (טולדו והבית).`
+            : 'חיצים / WASD כדי לרוץ, Shift לריצה מהירה, Space ליד דלת (טולדו והבית).',
+          targets: () => IS_TOUCH ? [dom('.joystick', 4), dom('.action-btn', 4)] : [p && world(p.x, p.y - 8, 110, 120)],
+        },
+        {
+          title: '🙋 שכן מבקש משהו',
+          text: 'הבועה מראה מה צריך, כמה נקודות זה שווה, ופס סבלנות שהולך ונגמר.',
+          targets: () => [bubble(asking)],
+        },
+        {
+          title: '💚 ירוק = יש לך!',
+          text: `כשהחפץ בתיק שלך — גם הוא וגם הבית זוהרים בירוק. ${G('רוץ', 'רוצי')} לבית, והמסירה אוטומטית.`,
+          targets: () => [bubble(green), dom('.bag-wanted', 4)],
+        },
+        {
+          title: '👑 אין לך? טולדו!',
+          text: 'באחוזת טולדו יש הכל (אחרי קפה קצר ☕). חלב, ביצים, פסטה ומלפפון יש גם בבית שלך 🏠. חץ ליד הדמות תמיד מראה לאן.',
+          targets: () => [houseBox(toledo), houseBox(home)],
+        },
+        {
+          title: '⚠️ זהירות, ומהר!',
+          text: `רכבים ובמבה על הכביש מפילים לך את החפצים, ושכנים 🏃 ינסו להקדים אותך. יש לך 3 דקות!`,
+          targets: () => [world(W / 2, 300, W, 196)],
+        },
+      ];
+      const st = steps[step] || steps[0];
+      const last = step === steps.length - 1;
+      const rects = st.targets().filter(Boolean);
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const cardW = Math.min(360, vw - 24);
+      const cardH = cardRef.current?.offsetHeight || 150;
+      // Place the card where it covers none of the highlighted things (or the least of them)
+      const clampX = (x) => Math.max(8, Math.min(vw - cardW - 8, x));
+      const clampY = (y) => Math.max(8, Math.min(vh - cardH - 8, y));
+      const t = rects[0];
+      const cands = [];
+      if (t) {
+        const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+        cands.push([clampX(cx - cardW / 2), t.y + t.h + 10], [clampX(cx - cardW / 2), t.y - cardH - 10],
+          [t.x - cardW - 10, clampY(cy - cardH / 2)], [t.x + t.w + 10, clampY(cy - cardH / 2)]);
+      }
+      cands.push([clampX((vw - cardW) / 2), 8], [clampX((vw - cardW) / 2), vh - cardH - 8], [8, 8], [vw - cardW - 8, 8], [8, vh - cardH - 8], [vw - cardW - 8, vh - cardH - 8]);
+      const inView = ([x, y]) => x >= 4 && y >= 4 && x + cardW <= vw - 4 && y + cardH <= vh - 4;
+      const overlap = ([x, y]) => rects.reduce((a, r) => a + Math.max(0, Math.min(x + cardW, r.x + r.w) - Math.max(x, r.x)) * Math.max(0, Math.min(y + cardH, r.y + r.h) - Math.max(y, r.y)), 0);
+      const best = cands.filter(inView).sort((p, q) => overlap(p) - overlap(q))[0] || [clampX((vw - cardW) / 2), clampY((vh - cardH) / 2)];
+      const [left, top] = best;
+      const go = (n) => { sound.click(); store.set({ tourStep: n }); };
+      return (
+        <div className="tour fixed inset-0 z-[70]">
+          <svg className="absolute inset-0 w-full h-full">
+            <defs>
+              <mask id="tour-mask">
+                <rect x="0" y="0" width="100%" height="100%" fill="white" />
+                {rects.map((r, i) => <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} rx="18" fill="black" />)}
+              </mask>
+            </defs>
+            <rect x="0" y="0" width="100%" height="100%" fill="rgba(2,6,23,0.8)" mask="url(#tour-mask)" />
+          </svg>
+          {rects.map((r, i) => (
+            <div key={i} className="tour-ring absolute rounded-[18px] border-4 border-amber-300 pointer-events-none"
+              style={{ left: r.x, top: r.y, width: r.w, height: r.h }} />
+          ))}
+          <div ref={cardRef} key={step} className="tour-card absolute bg-white text-slate-900 rounded-2xl shadow-2xl p-3"
+            style={{ left, top, width: cardW, visibility: measured === step ? 'visible' : 'hidden', animation: measured === step ? 'pop .3s ease-out' : 'none' }}>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-[11px] font-bold text-slate-400">שלב {step + 1} מתוך {steps.length}</span>
+              <button onClick={() => Game.beginRun()} className="tour-skip text-[11px] text-slate-500 underline">דלג על ההדרכה</button>
+            </div>
+            <div className="font-black text-base sm:text-lg leading-tight">{st.title}</div>
+            <div className="text-[13px] sm:text-sm text-slate-700 leading-snug mt-0.5">{st.text}</div>
+            <div className="flex items-center justify-between mt-2">
+              <div className="flex gap-1.5">
+                {steps.map((_, k) => <span key={k} className={`w-2 h-2 rounded-full ${k === step ? 'bg-emerald-500' : 'bg-slate-300'}`} />)}
+              </div>
+              <div className="flex gap-2">
+                {step > 0 && <button onClick={() => go(step - 1)} className="px-3 py-1.5 rounded-xl bg-slate-200 text-sm font-bold">→</button>}
+                <button onClick={() => last ? Game.beginRun() : go(step + 1)}
+                  className={`tour-next px-4 py-1.5 rounded-xl font-black text-sm ${last ? 'bg-emerald-500 text-slate-950 px-5' : 'bg-slate-900 text-white'}`}>
+                  {last ? 'יאללה, מתחילים! 🚀' : 'הבא ←'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ---------- Home screen ----------
     function HomeScreen({ s, best, setOverlay, myIdx, myBest }) {
       useEffect(() => { Board.refresh(); }, []);
@@ -2022,7 +2171,7 @@
                 ▶ {G('שחק', 'שחקי')}
               </button>
               <div className="flex flex-wrap justify-center gap-2">
-                <button onClick={() => { sound.click(); setOverlay('wizard'); }} className={btn}>❓ איך משחקים</button>
+                <button onClick={() => { sound.click(); Game.start(true); }} className={btn}>❓ איך משחקים</button>
                 <button onClick={() => { sound.click(); setOverlay('custom'); }} className={btn}>✏️ הדמות שלי</button>
                 <button onClick={() => { sound.click(); setOverlay('pickHouse'); }} className={btn}>🏠 החלפת בית</button>
               </div>
@@ -2134,14 +2283,6 @@
 
             <Floaters items={s.floaters} />
 
-            {s.coach && s.phase === 'PLAYING' && !s.paused && (
-              <div className="absolute inset-x-0 top-[40%] z-30 flex justify-center pointer-events-none px-4">
-                <div className="coach bg-amber-300 text-slate-950 font-black text-sm sm:text-lg rounded-2xl px-4 py-2 shadow-2xl border-4 border-white text-center max-w-xl" style={{ animation: 'pop .4s ease-out' }}>
-                  {coachText(s.coach)}
-                </div>
-              </div>
-            )}
-
             {s.overlay === 'pickHouse' && (
               <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none px-4">
                 <div className="pick-card bg-slate-950/90 border-4 border-sky-400 rounded-3xl px-5 py-3 text-center shadow-2xl max-w-lg" style={{ animation: 'pop .4s ease-out' }}>
@@ -2153,7 +2294,7 @@
             )}
 
             {/* Touch controls sit in the empty space beside the canvas on landscape phones */}
-            {IS_TOUCH && s.phase === 'PLAYING' && !s.paused && (
+            {IS_TOUCH && (s.phase === 'PLAYING' || s.phase === 'TOUR') && !s.paused && (
               <div className="absolute inset-0 pointer-events-none z-20 flex justify-between items-end"
                 style={{ padding: '0 max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left))', direction: 'ltr' }}>
                 <Joystick highlight={s.coach === 'move'} />
@@ -2173,7 +2314,7 @@
               {[0, 1, 2].map(i => {
                 const item = s.inventory[i];
                 return item ? (
-                  <div key={i} className={`h-10 flex items-center gap-1 rounded-xl border-2 pr-2 pl-1 shadow ${s.wanted[item.id] ? 'bg-emerald-800 border-emerald-300 shadow-emerald-500/50 shadow-lg' : 'bg-slate-800 border-slate-500'}`}>
+                  <div key={i} className={`h-10 flex items-center gap-1 rounded-xl border-2 pr-2 pl-1 shadow ${s.wanted[item.id] ? 'bag-wanted bg-emerald-800 border-emerald-300 shadow-emerald-500/50 shadow-lg' : 'bg-slate-800 border-slate-500'}`}>
                     <span className={`text-xl leading-none ${s.wanted[item.id] ? 'animate-bounce' : ''}`}>{item.icon}</span>
                     {s.wanted[item.id] && <span className="text-[10px] font-black text-emerald-200 whitespace-nowrap">💚 {s.wanted[item.id]}</span>}
                     <span className="hidden min-[700px]:inline text-[11px] font-bold text-slate-100 whitespace-nowrap">{item.name}</span>
@@ -2311,6 +2452,7 @@
           )}
 
           {/* ===== OVERLAYS ===== */}
+          {s.phase === 'TOUR' && s.tourStep !== null && !s.intro && <Tour step={s.tourStep} />}
           {s.intro && <WhatsAppIntro onDone={() => store.set({ intro: false })} />}
           {s.overlay === 'wizard' && <Wizard onClose={closeWizard} />}
           {s.overlay === 'custom' && <Customizer onClose={() => setOverlay(null)} />}
